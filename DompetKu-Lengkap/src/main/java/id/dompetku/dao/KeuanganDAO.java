@@ -37,7 +37,7 @@ public class KeuanganDAO {
  }
  
  public List<KategoriRow> kategori(long uid,String jenis)throws SQLException{
-  String q="SELECT id_kategori,nama_kategori,jenis_kategori FROM kategori WHERE jenis_kategori=? AND (id_pengguna IS NULL OR id_pengguna=?) ORDER BY nama_kategori";
+  String q="SELECT id_kategori,nama_kategori,jenis_kategori FROM kategori WHERE jenis_kategori=? AND (id_pengguna IS NULL OR id_pengguna=?) ORDER BY LOWER(nama_kategori) ASC, id_kategori ASC";
   List<KategoriRow> out=new ArrayList<>();try(Connection c=DatabaseConnection.getConnection();PreparedStatement p=c.prepareStatement(q)){p.setString(1,jenis);p.setLong(2,uid);try(ResultSet r=p.executeQuery()){while(r.next())out.add(new KategoriRow(r.getLong(1),r.getString(2),r.getString(3)));}}return out;
  }
  

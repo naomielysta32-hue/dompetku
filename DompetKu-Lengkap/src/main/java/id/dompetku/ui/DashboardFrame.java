@@ -14,6 +14,7 @@ import java.text.NumberFormat;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -23,6 +24,9 @@ public class DashboardFrame extends JFrame {
     private final KeuanganDAO dao = new KeuanganDAO();
     private final NumberFormat rupiah = NumberFormat.getCurrencyInstance(new Locale("id", "ID"));
     private final DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    // Daftar tugas untuk memuat ulang tabel tanpa membuka jendela dashboard baru.
+    private final List<Runnable> refreshTasks = new ArrayList<>();
 
     private JLabel lblTotalSaldo = new JLabel("Rp 0", SwingConstants.LEFT);
     private JLabel lblPemasukan = new JLabel("Rp 0", SwingConstants.LEFT);
@@ -331,6 +335,7 @@ public class DashboardFrame extends JFrame {
         p.add(buttons, BorderLayout.SOUTH);
 
         loadWallets(table);
+        refreshTasks.add(() -> loadWallets(table));
         return p;
     }
 
@@ -417,6 +422,7 @@ public class DashboardFrame extends JFrame {
         p.add(centerPanel, BorderLayout.CENTER);
 
         loadTransactions(table, "");
+        refreshTasks.add(() -> loadTransactions(table, search.getText()));
         return p;
     }
 
@@ -450,7 +456,7 @@ public class DashboardFrame extends JFrame {
 
             JTextField nominal = new JTextField();
             JTextField ket = new JTextField();
-            JComboBox<String> kategori = new JComboBox<>();
+            JComboBox<KeuanganDAO.KategoriRow> kategori = kategoriCombo();
 
             LocalDate now = LocalDate.now();
             
@@ -479,26 +485,12 @@ public class DashboardFrame extends JFrame {
                 kategori.removeAllItems();
                 try {
                     for (var k : dao.kategori(user.getIdPengguna(), (String) type.getSelectedItem())) {
-                        kategori.addItem(k.id() + " - " + k.nama());
+                        kategori.addItem(k);
                     }
                 } catch (Exception ex) {
                     error(ex);
                 }
             };
-
-            kategori.setRenderer(new DefaultListCellRenderer() {
-                @Override
-                public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-                    super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                    if (value != null) {
-                        String text = value.toString();
-                        if (text.contains(" - ")) {
-                            setText(text.split(" - ", 2)[1]);
-                        }
-                    }
-                    return this;
-                }
-            });
 
             loadCats.run();
             type.addActionListener(e -> loadCats.run());
@@ -520,8 +512,9 @@ public class DashboardFrame extends JFrame {
                 return;
             }
 
-            String selectedKatStr = kategori.getSelectedItem().toString();
-            long kid = Long.parseLong(selectedKatStr.split(" - ")[0].trim());
+            KeuanganDAO.KategoriRow selectedKategori =
+                    (KeuanganDAO.KategoriRow) kategori.getSelectedItem();
+            long kid = selectedKategori.id();
 
             String selectedDay = (String) comboDay.getSelectedItem();
             int selectedMonthIndex = comboMonth.getSelectedIndex() + 1;
@@ -680,6 +673,7 @@ public class DashboardFrame extends JFrame {
         p.add(buttons, BorderLayout.SOUTH);
 
         loadBudgets(table);
+        refreshTasks.add(() -> loadBudgets(table));
         return p;
     }
 
@@ -709,7 +703,7 @@ public class DashboardFrame extends JFrame {
                 return;
             }
 
-            JComboBox<String> c = combo(cats.stream().map(k -> k.id() + " | " + k.nama()).toList());
+            JComboBox<KeuanganDAO.KategoriRow> c = kategoriCombo(cats);
             JTextField mulai = new JTextField(YearMonth.now().atDay(1).toString());
             JTextField akhir = new JTextField(YearMonth.now().atEndOfMonth().toString());
             JTextField batas = new JTextField();
@@ -723,7 +717,17 @@ public class DashboardFrame extends JFrame {
                     },
                     "Tambah Anggaran Pengeluaran", JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
 
-            dao.tambahAnggaran(user.getIdPengguna(), idFrom(c), LocalDate.parse(mulai.getText()), LocalDate.parse(akhir.getText()), amount(batas.getText()));
+            KeuanganDAO.KategoriRow selectedKategori =
+                    (KeuanganDAO.KategoriRow) c.getSelectedItem();
+            if (selectedKategori == null) {
+                info("Pilih kategori pengeluaran terlebih dahulu.");
+                return;
+            }
+
+            dao.tambahAnggaran(user.getIdPengguna(), selectedKategori.id(),
+                    LocalDate.parse(mulai.getText()),
+                    LocalDate.parse(akhir.getText()),
+                    amount(batas.getText()));
             refreshAll();
         } catch (Exception e) {
             error(e);
@@ -751,6 +755,7 @@ public class DashboardFrame extends JFrame {
         p.add(buttons, BorderLayout.SOUTH);
 
         loadTargets(table);
+        refreshTasks.add(() -> loadTargets(table));
         return p;
     }
 
@@ -840,6 +845,7 @@ public class DashboardFrame extends JFrame {
         p.add(buttons, BorderLayout.SOUTH);
 
         loadDebts(table);
+        refreshTasks.add(() -> loadDebts(table));
         return p;
     }
 
@@ -1095,14 +1101,20 @@ public class DashboardFrame extends JFrame {
         });
     }
 
+    /**
+     * Memuat ulang data pada dashboard yang sedang terbuka.
+     * Tidak membuat JFrame baru, sehingga jendela DompetKu tidak menumpuk
+     * setiap kali pengguna menyimpan transaksi atau data lainnya.
+     */
     private void refreshAll() {
-        for (Window w : Window.getWindows()) {
-            if (w instanceof DashboardFrame) {
-                w.dispose();
-                new DashboardFrame(user).setVisible(true);
-                return;
-            }
+        loadSummary();
+
+        for (Runnable task : refreshTasks) {
+            task.run();
         }
+
+        revalidate();
+        repaint();
     }
 
     private String money(BigDecimal n) {
@@ -1132,6 +1144,42 @@ public class DashboardFrame extends JFrame {
                 return false;
             }
         };
+    }
+
+    /**
+     * ComboBox kategori menampilkan nama saja.
+     * ID kategori tetap tersimpan pada objek KategoriRow untuk proses database.
+     */
+    private JComboBox<KeuanganDAO.KategoriRow> kategoriCombo() {
+        return kategoriCombo(List.of());
+    }
+
+    private JComboBox<KeuanganDAO.KategoriRow> kategoriCombo(
+            List<KeuanganDAO.KategoriRow> categories) {
+
+        JComboBox<KeuanganDAO.KategoriRow> combo = new JComboBox<>();
+        combo.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(
+                    JList<?> list, Object value, int index,
+                    boolean isSelected, boolean cellHasFocus) {
+
+                super.getListCellRendererComponent(
+                        list, value, index, isSelected, cellHasFocus);
+
+                if (value instanceof KeuanganDAO.KategoriRow kategori) {
+                    setText(kategori.nama());
+                } else {
+                    setText("");
+                }
+                return this;
+            }
+        });
+
+        for (KeuanganDAO.KategoriRow category : categories) {
+            combo.addItem(category);
+        }
+        return combo;
     }
 
     private JComboBox<String> combo(List<String> items) {
