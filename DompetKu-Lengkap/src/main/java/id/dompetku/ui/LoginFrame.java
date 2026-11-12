@@ -92,16 +92,7 @@ public class LoginFrame extends JFrame {
         masuk.setBackground(Theme.CHARCOAL);
         masuk.setForeground(Theme.WHITE);
 
-        JButton daftar = new JButton("Buat akun baru");
-        daftar.setFont(new Font("SansSerif", Font.BOLD, 12));
-        daftar.setBackground(Theme.GOLD);
-        daftar.setForeground(Theme.WHITE);
-        daftar.setOpaque(true);
-        daftar.setContentAreaFilled(true);
-        daftar.setBorderPainted(false);
-        daftar.setFocusPainted(false);
-        daftar.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        daftar.setBorder(new EmptyBorder(11, 15, 11, 15));
+        JButton daftar = Theme.button("Buat akun baru");
 
         masuk.addActionListener(e -> login());
         daftar.addActionListener(e -> register());
