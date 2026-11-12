@@ -14,7 +14,7 @@ import java.util.*;
  * Seluruh operasi dibatasi ke dompet milik pengguna aktif.
  */
 public class KeuanganDAO {
- public record DompetRow(long id,String nama,String jenis,BigDecimal saldo){}
+ public record DompetRow(long id,String nama,String jenis,BigDecimal saldo,BigDecimal saldoAwal){}
  public record KategoriRow(long id,String nama,String jenis){}
  public record TransaksiRow(long id,LocalDateTime tanggal,String jenis,String dompet,String kategori,BigDecimal nominal,String keterangan){}
  public record Ringkasan(BigDecimal pemasukan,BigDecimal pengeluaran){public BigDecimal selisih(){return pemasukan.subtract(pengeluaran);}}
@@ -24,10 +24,11 @@ public class KeuanganDAO {
    SELECT d.id_dompet,d.nama_dompet,d.jenis_dompet,
     d.saldo_awal+COALESCE((SELECT SUM(CASE WHEN t.jenis_transaksi='PEMASUKAN' THEN t.nominal ELSE -t.nominal END) FROM transaksi t WHERE t.id_dompet=d.id_dompet),0)
     +COALESCE((SELECT SUM(nominal) FROM transfer x WHERE x.id_dompet_tujuan=d.id_dompet),0)
-    -COALESCE((SELECT SUM(nominal) FROM transfer x WHERE x.id_dompet_sumber=d.id_dompet),0) saldo
+    -COALESCE((SELECT SUM(nominal) FROM transfer x WHERE x.id_dompet_sumber=d.id_dompet),0) saldo,
+    d.saldo_awal
    FROM dompet d WHERE d.id_pengguna=? AND d.status_aktif ORDER BY d.nama_dompet
    """;
-  List<DompetRow> out=new ArrayList<>();try(Connection c=DatabaseConnection.getConnection();PreparedStatement p=c.prepareStatement(q)){p.setLong(1,uid);try(ResultSet r=p.executeQuery()){while(r.next())out.add(new DompetRow(r.getLong(1),r.getString(2),r.getString(3),r.getBigDecimal(4)));}}return out;
+  List<DompetRow> out=new ArrayList<>();try(Connection c=DatabaseConnection.getConnection();PreparedStatement p=c.prepareStatement(q)){p.setLong(1,uid);try(ResultSet r=p.executeQuery()){while(r.next())out.add(new DompetRow(r.getLong(1),r.getString(2),r.getString(3),r.getBigDecimal(4),r.getBigDecimal(5)));}}return out;
  }
  
  public void tambahDompet(Dompet d)throws SQLException{
@@ -36,6 +37,65 @@ public class KeuanganDAO {
   }
  }
  
+
+ /** Ubah nama, jenis, dan saldo awal dompet. Ditolak bila saldo dompet saat ini jadi negatif. */
+ public void ubahDompet(long uid,long id,String nama,String jenis,BigDecimal saldoAwal)throws SQLException{
+  if(nama==null||nama.isBlank())throw new IllegalArgumentException("Nama dompet wajib diisi.");
+  if(nama.trim().length()>80)throw new IllegalArgumentException("Nama dompet maksimal 80 karakter.");
+  if(!List.of("TUNAI","BANK","EWALLET").contains(jenis))throw new IllegalArgumentException("Jenis dompet tidak valid.");
+  if(saldoAwal==null||saldoAwal.signum()<0)throw new IllegalArgumentException("Saldo awal tidak boleh negatif.");
+  try(Connection c=DatabaseConnection.getConnection()){c.setAutoCommit(false);try{
+   BigDecimal awalLama;
+   try(PreparedStatement p=c.prepareStatement("SELECT saldo_awal FROM dompet WHERE id_dompet=? AND id_pengguna=? AND status_aktif FOR UPDATE")){
+    p.setLong(1,id);p.setLong(2,uid);try(ResultSet r=p.executeQuery()){if(!r.next())throw new SQLException("Dompet tidak ditemukan.");awalLama=r.getBigDecimal(1);}
+   }
+   if(saldo(c,id).subtract(awalLama).add(saldoAwal).signum()<0)throw new SQLException("Saldo awal terlalu kecil: saldo dompet saat ini akan menjadi negatif.");
+   try(PreparedStatement p=c.prepareStatement("UPDATE dompet SET nama_dompet=?,jenis_dompet=?,saldo_awal=? WHERE id_dompet=? AND id_pengguna=?")){
+    p.setString(1,nama.trim());p.setString(2,jenis);p.setBigDecimal(3,saldoAwal);p.setLong(4,id);p.setLong(5,uid);p.executeUpdate();
+   }
+   c.commit();
+  }catch(Exception e){c.rollback();if(e instanceof SQLException s)throw s;if(e instanceof RuntimeException re)throw re;throw new SQLException(e);}}
+ }
+
+ /** Jumlah transaksi + transfer yang melibatkan dompet ini. */
+ public int jumlahRiwayatDompet(long uid,long id)throws SQLException{
+  try(Connection c=DatabaseConnection.getConnection()){
+   if(!ownsWallet(c,uid,id))throw new SQLException("Dompet tidak ditemukan.");
+   return jumlahRiwayat(c,id);
+  }
+ }
+
+ /**
+  * Hapus dompet. Bila belum punya riwayat, dihapus permanen. Bila sudah punya riwayat, dompet hanya
+  * disembunyikan (status_aktif=false) supaya riwayat transaksi tidak rusak, dan namanya diberi
+  * penanda agar nama lama bisa dipakai lagi.
+  * @return true jika dihapus permanen, false jika hanya diarsipkan.
+  */
+ public boolean hapusDompet(long uid,long id)throws SQLException{
+  try(Connection c=DatabaseConnection.getConnection()){c.setAutoCommit(false);try{
+   String nama;
+   try(PreparedStatement p=c.prepareStatement("SELECT nama_dompet FROM dompet WHERE id_dompet=? AND id_pengguna=? AND status_aktif FOR UPDATE")){
+    p.setLong(1,id);p.setLong(2,uid);try(ResultSet r=p.executeQuery()){if(!r.next())throw new SQLException("Dompet tidak ditemukan.");nama=r.getString(1);}
+   }
+   boolean permanen=jumlahRiwayat(c,id)==0;
+   if(permanen){
+    try(PreparedStatement p=c.prepareStatement("DELETE FROM dompet WHERE id_dompet=? AND id_pengguna=?")){p.setLong(1,id);p.setLong(2,uid);p.executeUpdate();}
+   }else{
+    String penanda=" (dihapus #"+id+")";
+    String dasar=nama.length()>80-penanda.length()?nama.substring(0,80-penanda.length()):nama;
+    try(PreparedStatement p=c.prepareStatement("UPDATE dompet SET status_aktif=FALSE,nama_dompet=? WHERE id_dompet=? AND id_pengguna=?")){p.setString(1,dasar+penanda);p.setLong(2,id);p.setLong(3,uid);p.executeUpdate();}
+   }
+   c.commit();
+   return permanen;
+  }catch(Exception e){c.rollback();if(e instanceof SQLException s)throw s;throw new SQLException(e);}}
+ }
+
+ private int jumlahRiwayat(Connection c,long wallet)throws SQLException{
+  try(PreparedStatement p=c.prepareStatement("SELECT (SELECT COUNT(*) FROM transaksi WHERE id_dompet=?)+(SELECT COUNT(*) FROM transfer WHERE id_dompet_sumber=? OR id_dompet_tujuan=?)")){
+   p.setLong(1,wallet);p.setLong(2,wallet);p.setLong(3,wallet);try(ResultSet r=p.executeQuery()){r.next();return r.getInt(1);}
+  }
+ }
+
  public List<KategoriRow> kategori(long uid,String jenis)throws SQLException{
   String q="SELECT id_kategori,nama_kategori,jenis_kategori FROM kategori WHERE jenis_kategori=? AND (id_pengguna IS NULL OR id_pengguna=?) ORDER BY LOWER(nama_kategori) ASC, id_kategori ASC";
   List<KategoriRow> out=new ArrayList<>();try(Connection c=DatabaseConnection.getConnection();PreparedStatement p=c.prepareStatement(q)){p.setString(1,jenis);p.setLong(2,uid);try(ResultSet r=p.executeQuery()){while(r.next())out.add(new KategoriRow(r.getLong(1),r.getString(2),r.getString(3)));}}return out;

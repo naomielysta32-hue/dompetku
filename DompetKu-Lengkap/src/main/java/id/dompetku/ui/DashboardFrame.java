@@ -10,6 +10,7 @@ import javax.swing.table.JTableHeader;
 
 import java.awt.*;
 import java.math.BigDecimal;
+import java.sql.SQLException;
 import java.text.NumberFormat;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -37,7 +38,13 @@ public class DashboardFrame extends JFrame {
     private JLabel lblStatusTarget = new JLabel("Memuat...", SwingConstants.LEFT);
     private JLabel lblStatusUtang = new JLabel("Memuat...", SwingConstants.LEFT);
 
-    private JTextArea areaRincianDompet = new JTextArea();
+    private final JTable tblRincian = new JTable();
+
+    // Navigasi: sidebar di kiri, halaman bertumpuk (CardLayout) di kanan.
+    private final CardLayout cards = new CardLayout();
+    private final JPanel content = new JPanel(cards);
+    private final Sidebar sidebar;
+    private final ProfilePanel profilePanel;
 
     public DashboardFrame(Pengguna u) {
         super("DompetKu • Dashboard Keuangan");
@@ -48,59 +55,51 @@ public class DashboardFrame extends JFrame {
         setMinimumSize(new Dimension(960, 640));
         setLocationRelativeTo(null);
 
+        sidebar = new Sidebar(u.getNama(), u.getUsername(), this::navigate, this::logout);
+        sidebar.section("MENU UTAMA");
+        sidebar.item("ringkasan", "Ringkasan", "home");
+        sidebar.item("dompet", "Dompet", "wallet");
+        sidebar.item("transaksi", "Transaksi", "list");
+        sidebar.section("PERENCANAAN");
+        sidebar.item("anggaran", "Anggaran", "pie");
+        sidebar.item("tabungan", "Target Tabungan", "target");
+        sidebar.item("utang", "Utang-Piutang", "swap");
+        sidebar.section("LAINNYA");
+        sidebar.item("laporan", "Laporan & Ekspor", "chart");
+
+        profilePanel = new ProfilePanel(user, () -> sidebar.setUser(user.getNama(), user.getUsername()));
+
+        content.setBackground(Theme.BG);
+        content.add(summary(), "ringkasan");
+        content.add(wallets(), "dompet");
+        content.add(transactions(), "transaksi");
+        content.add(budgets(), "anggaran");
+        content.add(savings(), "tabungan");
+        content.add(debts(), "utang");
+        content.add(reports(), "laporan");
+        content.add(profilePanel, Sidebar.PROFILE_KEY);
+
         JPanel shell = new JPanel(new BorderLayout());
         shell.setBackground(Theme.BG);
-
-        JPanel top = new JPanel(new BorderLayout());
-        top.setBackground(Theme.CHARCOAL);
-        top.setBorder(BorderFactory.createEmptyBorder(16, 24, 16, 24));
-
-        JLabel brand = new JLabel("DompetKu");
-        brand.setForeground(Color.WHITE);
-        brand.setFont(new Font("SansSerif", Font.BOLD, 22));
-
-        JLabel hi = new JLabel("Halo, " + u.getNama() + "  ");
-        hi.setForeground(Color.WHITE);
-        hi.setFont(new Font("SansSerif", Font.PLAIN, 14));
-
-        JButton logout = new JButton("Keluar");
-        logout.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        logout.setBackground(Theme.PRIMARY);
-        logout.setForeground(Color.WHITE);
-        logout.setOpaque(true);
-        logout.setContentAreaFilled(true);
-        logout.setBorderPainted(false);
-        logout.setFocusPainted(false);
-        logout.setFont(new Font("SansSerif", Font.BOLD, 12));
-        logout.setBorder(new EmptyBorder(6, 12, 6, 12));
-        logout.addActionListener(e -> {
-            new LoginFrame().setVisible(true);
-            dispose();
-        });
-
-        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
-        right.setOpaque(false);
-        right.add(hi);
-        right.add(logout);
-
-        top.add(brand, BorderLayout.WEST);
-        top.add(right, BorderLayout.EAST);
-
-        JTabbedPane tabs = new JTabbedPane();
-        tabs.setFont(new Font("SansSerif", Font.BOLD, 13));
-        
-        tabs.addTab("Ringkasan", summary());
-        tabs.addTab("Dompet", wallets());
-        tabs.addTab("Transaksi", transactions());
-        tabs.addTab("Transfer", transfers());
-        tabs.addTab("Anggaran", budgets());
-        tabs.addTab("Target Tabungan", savings());
-        tabs.addTab("Utang-Piutang", debts());
-        tabs.addTab("Laporan & Ekspor", reports());
-
-        shell.add(top, BorderLayout.NORTH);
-        shell.add(tabs, BorderLayout.CENTER);
+        shell.add(sidebar, BorderLayout.WEST);
+        shell.add(content, BorderLayout.CENTER);
         setContentPane(shell);
+
+        navigate("ringkasan");
+    }
+
+    /** Pindah halaman dari menu samping. */
+    private void navigate(String page) {
+        if (Sidebar.PROFILE_KEY.equals(page)) {
+            profilePanel.reload();
+        }
+        cards.show(content, page);
+        sidebar.select(page);
+    }
+
+    private void logout() {
+        new LoginFrame().setVisible(true);
+        dispose();
     }
 
     private JPanel summary() {
@@ -156,16 +155,8 @@ public class DashboardFrame extends JFrame {
         lblSub.setForeground(Theme.TEXT);
         walletDetailPanel.add(lblSub, BorderLayout.NORTH);
 
-        areaRincianDompet.setEditable(false);
-        areaRincianDompet.setFont(new Font("Monospaced", Font.PLAIN, 13));
-        areaRincianDompet.setForeground(Theme.TEXT);
-        areaRincianDompet.setBackground(Theme.WHITE);
-        areaRincianDompet.setMargin(new Insets(12, 12, 12, 12));
-
-        JScrollPane scroll = new JScrollPane(areaRincianDompet);
-        scroll.getViewport().setBackground(Theme.WHITE);
-        scroll.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
-        walletDetailPanel.add(scroll, BorderLayout.CENTER);
+        styleTable(tblRincian);
+        walletDetailPanel.add(createTableContainer(tblRincian), BorderLayout.CENTER);
 
         centerContainer.add(walletDetailPanel, BorderLayout.CENTER);
         centerContainer.add(createFinancialTipPanel(), BorderLayout.SOUTH);
@@ -239,8 +230,13 @@ public class DashboardFrame extends JFrame {
     }
 
     private JPanel createAlertBox(String message, Color color) {
+        // Peringatan "hampir" (emas) memakai latar krem & teks cokelat tua agar terbaca;
+        // peringatan "lewat/habis" (merah) tetap memakai latar merah muda.
+        boolean warning = color == Theme.GOLD;
+        Color textColor = warning ? new Color(0x7A, 0x56, 0x00) : color;
+
         JPanel box = new JPanel(new BorderLayout());
-        box.setBackground(new Color(255, 240, 240));
+        box.setBackground(warning ? new Color(0xFF, 0xF4, 0xD6) : new Color(255, 240, 240));
         box.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(color, 1),
                 new EmptyBorder(8, 12, 8, 12)
@@ -249,7 +245,7 @@ public class DashboardFrame extends JFrame {
 
         JLabel lbl = new JLabel(message);
         lbl.setFont(new Font("SansSerif", Font.BOLD, 12));
-        lbl.setForeground(color);
+        lbl.setForeground(textColor);
         box.add(lbl, BorderLayout.CENTER);
 
         JPanel wrapper = new JPanel(new BorderLayout());
@@ -281,15 +277,13 @@ public class DashboardFrame extends JFrame {
 
     private void loadSummary() {
         try {
-            StringBuilder b = new StringBuilder();
-            b.append(String.format("%-26s %-12s %s%n", "NAMA DOMPET", "JENIS", "SALDO"));
-            b.append("---------------------------------------------------------------------\n");
-
+            DefaultTableModel rincian = model("Nama Dompet", "Jenis", "Saldo");
             BigDecimal total = BigDecimal.ZERO;
             for (var w : dao.dompet(user.getIdPengguna())) {
-                b.append(String.format("%-26s %-12s %s%n", w.nama(), w.jenis(), money(w.saldo())));
+                rincian.addRow(new Object[]{ w.nama(), w.jenis(), money(w.saldo()) });
                 total = total.add(w.saldo());
             }
+            tblRincian.setModel(rincian);
 
             var r = dao.ringkasan(
                     user.getIdPengguna(),
@@ -311,7 +305,6 @@ public class DashboardFrame extends JFrame {
             long unpaidDebts = debts.stream().filter(d -> !"LUNAS".equalsIgnoreCase(d[6])).count();
             lblStatusUtang.setText(debts.isEmpty() ? "Tidak ada catatan" : unpaidDebts + " Catatan Belum Lunas");
 
-            areaRincianDompet.setText(b.toString());
         } catch (Exception ex) {
             error(ex);
         }
@@ -322,17 +315,51 @@ public class DashboardFrame extends JFrame {
         JTable table = new JTable();
         styleTable(table);
 
-        JButton add = Theme.button("+ Tambah Dompet Baru");
-
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
-        buttons.setOpaque(false);
-        buttons.add(add);
+        JButton add = Theme.button("+ Tambah Dompet");
+        JButton transfer = Theme.buttonDark("Transfer");
+        JButton edit = Theme.buttonGhost("Edit");
+        JButton delete = Theme.buttonDanger("Hapus");
+        edit.setEnabled(false);
+        delete.setEnabled(false);
 
         add.addActionListener(e -> addWallet());
+        transfer.addActionListener(e -> transfer());
+        edit.addActionListener(e -> editWallet(table));
+        delete.addActionListener(e -> deleteWallet(table));
 
-        p.add(Theme.heading("Daftar Dompet & Rekening"), BorderLayout.NORTH);
-        p.add(createTableContainer(table), BorderLayout.CENTER);
-        p.add(buttons, BorderLayout.SOUTH);
+        // Edit & Hapus aktif hanya bila ada dompet yang dipilih.
+        table.getSelectionModel().addListSelectionListener(e -> {
+            boolean selected = table.getSelectedRow() >= 0;
+            edit.setEnabled(selected);
+            delete.setEnabled(selected);
+        });
+        // Klik dua kali pada baris = edit.
+        table.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (e.getClickCount() == 2 && table.getSelectedRow() >= 0) {
+                    editWallet(table);
+                }
+            }
+        });
+
+        JLabel hint = new JLabel("Pilih satu dompet di tabel untuk mengedit atau menghapusnya.");
+        hint.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        hint.setForeground(Theme.HINT);
+
+        JPanel toolbar = new JPanel(new BorderLayout(12, 0));
+        toolbar.setOpaque(false);
+        toolbar.setBorder(new EmptyBorder(0, 0, 4, 0));
+        toolbar.add(hint, BorderLayout.WEST);
+        toolbar.add(Theme.buttonRow(edit, delete, transfer, add), BorderLayout.EAST);
+
+        JPanel body = new JPanel(new BorderLayout(0, 10));
+        body.setOpaque(false);
+        body.add(toolbar, BorderLayout.NORTH);
+        body.add(createTableContainer(table), BorderLayout.CENTER);
+
+        p.add(Theme.pageHeader("Daftar Dompet & Rekening", null), BorderLayout.NORTH);
+        p.add(body, BorderLayout.CENTER);
 
         loadWallets(table);
         refreshTasks.add(() -> loadWallets(table));
@@ -348,6 +375,7 @@ public class DashboardFrame extends JFrame {
                 m.addRow(new Object[]{ r.id(), r.nama(), r.jenis(), money(r.saldo()) });
             }
             table.setModel(m);
+            hideIdColumn(table);
         } catch (Exception e) {
             error(e);
         }
@@ -368,7 +396,7 @@ public class DashboardFrame extends JFrame {
                 JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
 
         try {
-            BigDecimal s = amount(saldo.getText());
+            BigDecimal s = amountOrZero(saldo.getText());
             Dompet d = switch ((String) jenis.getSelectedItem()) {
                 case "BANK" -> new RekeningBank(user.getIdPengguna(), nama.getText(), s);
                 case "EWALLET" -> new EWallet(user.getIdPengguna(), nama.getText(), s);
@@ -376,6 +404,86 @@ public class DashboardFrame extends JFrame {
             };
 
             dao.tambahDompet(d);
+            refreshAll();
+        } catch (Exception e) {
+            error(e);
+        }
+    }
+
+    private void editWallet(JTable table) {
+        Long id = selectedId(table);
+        if (id == null) {
+            info("Pilih dompet yang ingin diedit terlebih dahulu.");
+            return;
+        }
+
+        try {
+            var w = dao.dompet(user.getIdPengguna()).stream()
+                    .filter(x -> x.id() == id)
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException("Dompet tidak ditemukan. Muat ulang halaman."));
+
+            JTextField nama = new JTextField(w.nama());
+            JComboBox<String> jenis = new JComboBox<>(new String[]{"TUNAI", "BANK", "EWALLET"});
+            jenis.setSelectedItem(w.jenis());
+            JTextField saldoAwal = new JTextField(plain(w.saldoAwal()));
+
+            JLabel note = new JLabel("<html><div style='width:260px;color:#7A6A55'>Saldo saat ini <b>"
+                    + money(w.saldo()) + "</b>. Mengubah saldo awal akan ikut mengubah saldo saat ini.</div></html>");
+
+            Object[] fields = {
+                    "Nama Dompet:", nama,
+                    "Jenis Akun:", jenis,
+                    "Saldo Awal (Rp):", saldoAwal,
+                    note
+            };
+
+            if (JOptionPane.showConfirmDialog(this, fields, "Edit Dompet",
+                    JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
+
+            dao.ubahDompet(user.getIdPengguna(), id, nama.getText(),
+                    (String) jenis.getSelectedItem(), amountOrZero(saldoAwal.getText()));
+            refreshAll();
+        } catch (Exception e) {
+            error(e);
+        }
+    }
+
+    private void deleteWallet(JTable table) {
+        Long id = selectedId(table);
+        if (id == null) {
+            info("Pilih dompet yang ingin dihapus terlebih dahulu.");
+            return;
+        }
+
+        try {
+            var w = dao.dompet(user.getIdPengguna()).stream()
+                    .filter(x -> x.id() == id)
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException("Dompet tidak ditemukan. Muat ulang halaman."));
+
+            int riwayat = dao.jumlahRiwayatDompet(user.getIdPengguna(), id);
+
+            StringBuilder msg = new StringBuilder("<html><div style='width:300px'>");
+            if (riwayat == 0) {
+                msg.append("Hapus dompet <b>").append(escape(w.nama())).append("</b> secara permanen?");
+            } else {
+                msg.append("Dompet <b>").append(escape(w.nama())).append("</b> punya ").append(riwayat)
+                   .append(" catatan transaksi/transfer.<br><br>Dompet akan disembunyikan dari daftar. ")
+                   .append("Riwayat transaksinya tetap tersimpan.");
+            }
+            if (w.saldo().signum() != 0) {
+                msg.append("<br><br>Saldo <b>").append(money(w.saldo()))
+                   .append("</b> tidak akan ikut dihitung lagi di Total Saldo.");
+            }
+            msg.append("</div></html>");
+
+            Object[] options = {"Hapus", "Batal"};
+            int choice = JOptionPane.showOptionDialog(this, new JLabel(msg.toString()), "Hapus Dompet",
+                    JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE, null, options, options[1]);
+            if (choice != 0) return;
+
+            dao.hapusDompet(user.getIdPengguna(), id);
             refreshAll();
         } catch (Exception e) {
             error(e);
@@ -390,7 +498,7 @@ public class DashboardFrame extends JFrame {
         JTextField search = new JTextField(16);
         JButton find = Theme.button("Cari");
         JButton add = Theme.button("+ Catat Transaksi");
-        JButton cat = Theme.button("+ Kelola Kategori");
+        JButton cat = Theme.buttonDark("+ Kelola Kategori");
 
         JPanel searchBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         searchBar.setOpaque(false);
@@ -436,6 +544,8 @@ public class DashboardFrame extends JFrame {
                 });
             }
             table.setModel(m);
+            hideIdColumn(table);
+            setColumnWidths(table, 195, 150, 125, 130, 150, 150);
         } catch (Exception e) {
             error(e);
         }
@@ -552,46 +662,6 @@ public class DashboardFrame extends JFrame {
         }
     }
 
-    private JPanel transfers() {
-        JPanel p = Theme.page();
-        p.setLayout(new GridBagLayout());
-
-        JPanel cardForm = new JPanel(new GridBagLayout());
-        cardForm.setBackground(Theme.WHITE);
-        cardForm.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(Theme.BORDER),
-                new EmptyBorder(28, 32, 28, 32)
-        ));
-
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(10, 10, 10, 10);
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.gridx = 0; gbc.gridy = 0;
-
-        JLabel title = new JLabel("💸 Transfer Antar Dompet");
-        title.setFont(new Font("SansSerif", Font.BOLD, 20));
-        title.setForeground(Theme.TEXT);
-        cardForm.add(title, gbc);
-
-        gbc.gridy++;
-        JLabel desc = new JLabel("<html><p style='width: 380px; color: #555;'>Pindahkan saldo antar rekening atau dompet secara real-time dan aman langsung dari workspace Anda.</p></html>");
-        cardForm.add(desc, gbc);
-
-        gbc.gridy++;
-        JButton doTransfer = Theme.button("Mulai Sesi Transfer");
-        doTransfer.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        doTransfer.addActionListener(e -> transfer());
-        cardForm.add(doTransfer, gbc);
-
-        GridBagConstraints pageGbc = new GridBagConstraints();
-        pageGbc.gridx = 0;
-        pageGbc.gridy = 0;
-        pageGbc.anchor = GridBagConstraints.CENTER;
-
-        p.add(cardForm, pageGbc);
-        return p;
-    }
-
     private void transfer() {
         try {
             var wallets = dao.dompet(user.getIdPengguna());
@@ -664,13 +734,8 @@ public class DashboardFrame extends JFrame {
 
         add.addActionListener(e -> addBudget());
 
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
-        buttons.setOpaque(false);
-        buttons.add(add);
-
-        p.add(Theme.heading("Anggaran Pengeluaran Bulanan"), BorderLayout.NORTH);
+        p.add(Theme.pageHeader("Anggaran Pengeluaran Bulanan", Theme.buttonRow(add)), BorderLayout.NORTH);
         p.add(createTableContainer(table), BorderLayout.CENTER);
-        p.add(buttons, BorderLayout.SOUTH);
 
         loadBudgets(table);
         refreshTasks.add(() -> loadBudgets(table));
@@ -690,6 +755,7 @@ public class DashboardFrame extends JFrame {
                 m.addRow(new Object[]{ r[0], r[1], r[2], r[3], money(limit), money(used), pct });
             }
             table.setModel(m);
+            hideIdColumn(table);
         } catch (Exception e) {
             error(e);
         }
@@ -740,19 +806,13 @@ public class DashboardFrame extends JFrame {
         styleTable(table);
 
         JButton add = Theme.button("+ Target Baru");
-        JButton con = Theme.button("+ Tambah Setoran");
+        JButton con = Theme.buttonDark("+ Tambah Setoran");
 
         add.addActionListener(e -> addTarget());
         con.addActionListener(e -> contribute());
 
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
-        buttons.setOpaque(false);
-        buttons.add(con);
-        buttons.add(add);
-
-        p.add(Theme.heading("Target Tabungan & Impian"), BorderLayout.NORTH);
+        p.add(Theme.pageHeader("Target Tabungan & Impian", Theme.buttonRow(con, add)), BorderLayout.NORTH);
         p.add(createTableContainer(table), BorderLayout.CENTER);
-        p.add(buttons, BorderLayout.SOUTH);
 
         loadTargets(table);
         refreshTasks.add(() -> loadTargets(table));
@@ -771,6 +831,7 @@ public class DashboardFrame extends JFrame {
                 });
             }
             table.setModel(m);
+            hideIdColumn(table);
         } catch (Exception e) {
             error(e);
         }
@@ -830,19 +891,13 @@ public class DashboardFrame extends JFrame {
         styleTable(table);
 
         JButton add = Theme.button("+ Catat Utang/Piutang");
-        JButton pay = Theme.button("+ Bayar / Cicil");
+        JButton pay = Theme.buttonDark("+ Bayar / Cicil");
 
         add.addActionListener(e -> addDebt());
         pay.addActionListener(e -> payDebt());
 
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
-        buttons.setOpaque(false);
-        buttons.add(pay);
-        buttons.add(add);
-
-        p.add(Theme.heading("Catatan Utang & Piutang"), BorderLayout.NORTH);
+        p.add(Theme.pageHeader("Catatan Utang & Piutang", Theme.buttonRow(pay, add)), BorderLayout.NORTH);
         p.add(createTableContainer(table), BorderLayout.CENTER);
-        p.add(buttons, BorderLayout.SOUTH);
 
         loadDebts(table);
         refreshTasks.add(() -> loadDebts(table));
@@ -861,6 +916,7 @@ public class DashboardFrame extends JFrame {
                 });
             }
             table.setModel(m);
+            hideIdColumn(table);
         } catch (Exception e) {
             error(e);
         }
@@ -1017,8 +1073,8 @@ public class DashboardFrame extends JFrame {
         table.setForeground(Theme.TEXT);
         table.setBackground(Theme.WHITE);
         table.setGridColor(Theme.BORDER);
-        table.setSelectionBackground(Theme.UBE);
-        table.setSelectionForeground(Theme.WHITE);
+        table.setSelectionBackground(Theme.SELECTION);
+        table.setSelectionForeground(Theme.TEXT);
         table.setShowVerticalLines(false);
         table.setShowHorizontalLines(true);
         table.setFillsViewportHeight(true);
@@ -1064,10 +1120,11 @@ public class DashboardFrame extends JFrame {
 
                 label.setFont(new Font("SansSerif", Font.PLAIN, 14));
                 label.setBorder(BorderFactory.createEmptyBorder(4, 12, 4, 12));
+                label.setToolTipText(value == null ? null : value.toString()); // isi penuh bila teks terpotong
 
                 if (selected) {
-                    label.setBackground(Theme.UBE);
-                    label.setForeground(Theme.WHITE);
+                    label.setBackground(Theme.SELECTION);
+                    label.setForeground(Theme.TEXT);
                     return label;
                 }
 
@@ -1121,20 +1178,71 @@ public class DashboardFrame extends JFrame {
         return rupiah.format(n == null ? BigDecimal.ZERO : n);
     }
 
-    private BigDecimal amount(String s) {
-        String x = s.trim()
+    private BigDecimal parseNumber(String s) {
+        return new BigDecimal(s.trim()
                 .replace("Rp", "")
                 .replace(" ", "")
                 .replace(".", "")
-                .replace(",", ".");
+                .replace(",", "."));
+    }
 
-        BigDecimal b = new BigDecimal(x);
+    private BigDecimal amount(String s) {
+        BigDecimal b = parseNumber(s);
 
         if (b.signum() <= 0) {
             throw new IllegalArgumentException("Nominal harus lebih dari nol.");
         }
 
         return b;
+    }
+
+    /** Seperti amount(), tetapi boleh nol / kosong (untuk saldo awal dompet). */
+    private BigDecimal amountOrZero(String s) {
+        if (s == null || s.isBlank()) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal b = parseNumber(s);
+
+        if (b.signum() < 0) {
+            throw new IllegalArgumentException("Saldo awal tidak boleh negatif.");
+        }
+
+        return b;
+    }
+
+    /** Angka tanpa notasi ilmiah, dalam format yang bisa dibaca kembali oleh amount(). */
+    private String plain(BigDecimal n) {
+        if (n == null || n.signum() == 0) {
+            return "0";
+        }
+        return n.stripTrailingZeros().toPlainString().replace('.', ',');
+    }
+
+    private String escape(String text) {
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    /** Lebar relatif kolom (setelah kolom ID disembunyikan), agar tanggal tidak terpotong. */
+    private void setColumnWidths(JTable table, int... widths) {
+        for (int i = 0; i < widths.length && i < table.getColumnCount(); i++) {
+            table.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
+        }
+    }
+
+    /** Kolom ID tetap ada di model (untuk edit/hapus) tetapi tidak ditampilkan. */
+    private void hideIdColumn(JTable table) {
+        if (table.getColumnCount() > 0 && "ID".equals(table.getColumnName(0))) {
+            table.removeColumn(table.getColumnModel().getColumn(0));
+        }
+    }
+
+    /** ID baris terpilih (kolom pertama model), atau null bila tidak ada yang dipilih. */
+    private Long selectedId(JTable table) {
+        int row = table.getSelectedRow();
+        if (row < 0) {
+            return null;
+        }
+        return Long.parseLong(table.getModel().getValueAt(table.convertRowIndexToModel(row), 0).toString());
     }
 
     DefaultTableModel model(String... cols) {
@@ -1207,7 +1315,17 @@ public class DashboardFrame extends JFrame {
     }
 
     private void error(Exception e) {
-        JOptionPane.showMessageDialog(this, e.getMessage(), "Kesalahan", JOptionPane.ERROR_MESSAGE);
+        String msg;
+        if (e instanceof SQLException se && "23505".equals(se.getSQLState())) {
+            msg = "Data dengan nama tersebut sudah ada. Gunakan nama lain.";
+        } else if (e instanceof NumberFormatException) {
+            msg = "Format angka tidak valid. Contoh: 150000";
+        } else if (e instanceof java.time.format.DateTimeParseException) {
+            msg = "Format tanggal tidak valid. Gunakan YYYY-MM-DD, contoh: 2026-11-30";
+        } else {
+            msg = e.getMessage() == null ? e.toString() : e.getMessage();
+        }
+        JOptionPane.showMessageDialog(this, msg, "Kesalahan", JOptionPane.ERROR_MESSAGE);
     }
 
     private void info(String s) {

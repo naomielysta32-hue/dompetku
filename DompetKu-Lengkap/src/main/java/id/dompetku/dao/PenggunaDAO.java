@@ -20,4 +20,45 @@ public class PenggunaDAO {
    }
   }
  }
+
+ public record Statistik(int jumlahDompet,int jumlahTransaksi){}
+
+ /** Ubah nama dan username. Username harus unik. */
+ public void ubahProfil(long uid,String nama,String username)throws SQLException{
+  if(nama==null||nama.isBlank())throw new IllegalArgumentException("Nama lengkap tidak boleh kosong.");
+  if(nama.trim().length()>120)throw new IllegalArgumentException("Nama lengkap maksimal 120 karakter.");
+  if(username==null||username.trim().length()<3)throw new IllegalArgumentException("Username minimal 3 karakter.");
+  if(username.trim().length()>50)throw new IllegalArgumentException("Username maksimal 50 karakter.");
+  try(Connection c=DatabaseConnection.getConnection();PreparedStatement p=c.prepareStatement("UPDATE pengguna SET nama=?,username=? WHERE id_pengguna=?")){
+   p.setString(1,nama.trim());p.setString(2,username.trim());p.setLong(3,uid);
+   if(p.executeUpdate()==0)throw new SQLException("Akun tidak ditemukan.");
+  }catch(SQLException e){
+   if("23505".equals(e.getSQLState()))throw new SQLException("Username sudah dipakai orang lain.");
+   throw e;
+  }
+ }
+
+ /** Ganti password; password lama wajib benar. */
+ public void ubahPassword(long uid,String lama,String baru)throws SQLException{
+  try(Connection c=DatabaseConnection.getConnection()){
+   String hash;
+   try(PreparedStatement p=c.prepareStatement("SELECT password_hash FROM pengguna WHERE id_pengguna=?")){
+    p.setLong(1,uid);try(ResultSet r=p.executeQuery()){if(!r.next())throw new SQLException("Akun tidak ditemukan.");hash=r.getString(1);}
+   }
+   if(!PasswordUtil.verify(lama,hash))throw new SQLException("Password lama salah.");
+   String hashBaru=PasswordUtil.hash(baru); // melempar IllegalArgumentException bila < 8 karakter
+   try(PreparedStatement p=c.prepareStatement("UPDATE pengguna SET password_hash=? WHERE id_pengguna=?")){
+    p.setString(1,hashBaru);p.setLong(2,uid);p.executeUpdate();
+   }
+  }
+ }
+
+ /** Ringkasan angka untuk halaman profil. */
+ public Statistik statistik(long uid)throws SQLException{
+  String q="SELECT (SELECT COUNT(*) FROM dompet WHERE id_pengguna=? AND status_aktif),(SELECT COUNT(*) FROM transaksi t JOIN dompet d ON d.id_dompet=t.id_dompet WHERE d.id_pengguna=?)";
+  try(Connection c=DatabaseConnection.getConnection();PreparedStatement p=c.prepareStatement(q)){
+   p.setLong(1,uid);p.setLong(2,uid);
+   try(ResultSet r=p.executeQuery()){r.next();return new Statistik(r.getInt(1),r.getInt(2));}
+  }
+ }
 }
