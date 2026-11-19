@@ -652,7 +652,7 @@ public class DashboardFrame extends JFrame {
         p.add(centerPanel, BorderLayout.CENTER);
 
         loadTransactions(table, "");
-        refreshTasks.add(() -> loadTransactions(table, search.getText()));
+        refreshTasks.add(() -> { search.setText(""); loadTransactions(table, ""); });
 
         return p;
     }
