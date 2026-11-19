@@ -1350,32 +1350,133 @@ public class DashboardFrame extends JFrame {
 
         JTextArea out = new JTextArea();
         out.setEditable(false);
-        out.setFont(new Font("Monospaced", Font.PLAIN, 14));
+        out.setFont(new Font("Monospaced", Font.PLAIN, 13));
         out.setMargin(new Insets(16, 16, 16, 16));
+
+        CategoryPiePanel incomeChart =
+                new CategoryPiePanel("RINCIAN PEMASUKAN");
+
+        CategoryPiePanel expenseChart =
+                new CategoryPiePanel("RINCIAN PENGELUARAN");
 
         JButton show = Theme.button("Tampilkan Laporan");
         JButton csv = Theme.button("Ekspor File CSV");
 
         show.addActionListener(e -> {
             try {
-                var r = dao.ringkasan(
-                        user.getIdPengguna(),
-                        LocalDate.parse(start.getText()),
-                        LocalDate.parse(end.getText())
+                LocalDate mulai = LocalDate.parse(start.getText());
+                LocalDate akhir = LocalDate.parse(end.getText());
+
+                var ringkasan = dao.ringkasan(
+                        user.getIdPengguna(), mulai, akhir
                 );
 
-                out.setText(
-                        "====================================================\n" +
-                                "               LAPORAN KEUANGAN MAHASISWA           \n" +
-                                "====================================================\n" +
-                                "Periode Data : " + start.getText()
-                                + " s.d. " + end.getText() + "\n\n" +
-                                "Total Pemasukan  : " + money(r.pemasukan()) + "\n" +
-                                "Total Pengeluaran: " + money(r.pengeluaran()) + "\n" +
-                                "----------------------------------------------------\n" +
-                                "Selisih Bersih   : " + money(r.selisih()) + "\n" +
-                                "====================================================\n"
+                var kategoriPemasukan = dao.rincianKategori(
+                        user.getIdPengguna(),
+                        "PEMASUKAN",
+                        mulai,
+                        akhir
                 );
+
+                var kategoriPengeluaran = dao.rincianKategori(
+                        user.getIdPengguna(),
+                        "PENGELUARAN",
+                        mulai,
+                        akhir
+                );
+
+                incomeChart.setData(kategoriPemasukan);
+                expenseChart.setData(kategoriPengeluaran);
+
+                var tren = dao.trenBulanan(
+                        user.getIdPengguna(),
+                        mulai,
+                        akhir
+                );
+
+                StringBuilder laporan = new StringBuilder();
+
+                laporan.append("====================================================\n");
+                laporan.append("               LAPORAN KEUANGAN DOMPETKU             \n");
+                laporan.append("====================================================\n");
+
+                laporan.append("Periode : ")
+                        .append(mulai)
+                        .append(" s.d. ")
+                        .append(akhir)
+                        .append("\n\n");
+
+                laporan.append("RINGKASAN KEUANGAN\n");
+                laporan.append("----------------------------------------------------\n");
+
+                laporan.append("Total Pemasukan   : ")
+                        .append(money(ringkasan.pemasukan()))
+                        .append("\n");
+
+                laporan.append("Total Pengeluaran : ")
+                        .append(money(ringkasan.pengeluaran()))
+                        .append("\n");
+
+                laporan.append("Selisih Bersih    : ")
+                        .append(money(ringkasan.selisih()))
+                        .append("\n\n");
+
+                laporan.append("\nRINCIAN PEMASUKAN BERDASARKAN KATEGORI\n");
+                laporan.append("----------------------------------------------------\n");
+
+                if (kategoriPemasukan.isEmpty()) {
+                    laporan.append("Belum ada data pemasukan.\n");
+                } else {
+                    for (var item : kategoriPemasukan) {
+                        laporan.append(item.nama())
+                                .append(" : ")
+                                .append(money(item.total()))
+                                .append(" (")
+                                .append(item.persentase().toPlainString())
+                                .append("%)\n");
+                    }
+                }
+
+                laporan.append("\nRINCIAN PENGELUARAN BERDASARKAN KATEGORI\n");
+                laporan.append("----------------------------------------------------\n");
+
+                if (kategoriPengeluaran.isEmpty()) {
+                    laporan.append("Belum ada data pengeluaran.\n");
+                } else {
+                    for (var item : kategoriPengeluaran) {
+                        laporan.append(item.nama())
+                                .append(" : ")
+                                .append(money(item.total()))
+                                .append(" (")
+                                .append(item.persentase().toPlainString())
+                                .append("%)\n");
+                    }
+                }
+
+                laporan.append("\nTREN KEUANGAN BULANAN\n");
+                laporan.append("----------------------------------------------------\n");
+
+                if (tren.isEmpty()) {
+                    laporan.append("Belum ada data tren keuangan.\n");
+                } else {
+                    for (var item : tren) {
+                        laporan.append(item.bulan())
+                                .append("\n");
+
+                        laporan.append("  Pemasukan   : ")
+                                .append(money(item.pemasukan()))
+                                .append("\n");
+
+                        laporan.append("  Pengeluaran : ")
+                                .append(money(item.pengeluaran()))
+                                .append("\n\n");
+                    }
+                }
+
+                laporan.append("====================================================\n");
+
+                out.setText(laporan.toString());
+                out.setCaretPosition(0);
 
             } catch (Exception ex) {
                 error(ex);
@@ -1384,6 +1485,9 @@ public class DashboardFrame extends JFrame {
 
         csv.addActionListener(e -> {
             try {
+                LocalDate mulai = LocalDate.parse(start.getText());
+                LocalDate akhir = LocalDate.parse(end.getText());
+
                 JFileChooser fc = new JFileChooser();
                 fc.setSelectedFile(
                         new java.io.File("laporan-dompetku.csv")
@@ -1393,8 +1497,8 @@ public class DashboardFrame extends JFrame {
                     dao.eksporCsv(
                             user.getIdPengguna(),
                             fc.getSelectedFile().toPath(),
-                            LocalDate.parse(start.getText()),
-                            LocalDate.parse(end.getText())
+                            mulai,
+                            akhir
                     );
 
                     info("Laporan CSV berhasil diekspor.");
@@ -1427,19 +1531,273 @@ public class DashboardFrame extends JFrame {
         reportWrapper.setOpaque(false);
         reportWrapper.add(filterBar, BorderLayout.NORTH);
 
-        JScrollPane scroll = new JScrollPane(out);
-        scroll.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
+        // Panel untuk menampung laporan teks dan grafik
+        JPanel chartContainer = new JPanel(
+                new GridLayout(1, 2, 16, 0)
+        );
+
+        chartContainer.setBackground(Theme.WHITE);
+        chartContainer.setBorder(
+                new EmptyBorder(0, 0, 5, 0)
+        );
+
+        chartContainer.add(incomeChart);
+        chartContainer.add(expenseChart);
+
+        JPanel resultPanel = new JPanel();
+        resultPanel.setLayout(
+                new BoxLayout(resultPanel, BoxLayout.Y_AXIS)
+        );
+        resultPanel.setBackground(Theme.WHITE);
+
+        out.setRows(18);
+        out.setColumns(60);
+
+        JScrollPane textScroll = new JScrollPane(out);
+        textScroll.setPreferredSize(new Dimension(900, 400));
+
+        resultPanel.add(textScroll);
+        resultPanel.add(Box.createVerticalStrut(16));
+        resultPanel.add(chartContainer);
+
+        JScrollPane scroll = new JScrollPane(resultPanel);
+        scroll.setBorder(
+                BorderFactory.createLineBorder(Theme.BORDER)
+        );
 
         reportWrapper.add(scroll, BorderLayout.CENTER);
 
         p.add(
-                Theme.heading("Laporan Keuangan & Ekspor CSV"),
+                Theme.heading("Laporan Keuangan & Analisis"),
                 BorderLayout.NORTH
         );
 
         p.add(reportWrapper, BorderLayout.CENTER);
 
         return p;
+    }
+
+    private static class CategoryPiePanel extends JPanel {
+
+        private List<KeuanganDAO.KategoriLaporan> data = new ArrayList<>();
+
+        private final String title;
+
+        // Palet warna yang lebih lembut dan sesuai tema DompetKu
+        private final Color[] colors = {
+                new Color(201, 156, 45),  // Gold
+                new Color(54, 140, 132),  // Teal
+                new Color(83, 119, 166),  // Biru
+                new Color(119, 151, 112), // Sage green
+                new Color(139, 112, 163), // Ungu
+                new Color(218, 145, 76),  // Oranye
+                new Color(181, 103, 83),  // Terracotta
+                new Color(105, 125, 137)  // Abu kebiruan
+        };
+
+        public CategoryPiePanel(String title) {
+            this.title = title;
+
+            setBackground(Color.WHITE);
+            setPreferredSize(new Dimension(430, 420));
+            setMinimumSize(new Dimension(390, 400));
+
+            setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(Theme.BORDER),
+                    new EmptyBorder(15, 12, 15, 12)
+            ));
+        }
+
+        public void setData(List<KeuanganDAO.KategoriLaporan> data) {
+            this.data = new ArrayList<>(data);
+            repaint();
+        }
+
+        private Color getCategoryColor(String nama, int index) {
+            return colors[index % colors.length];
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+
+            Graphics2D g2 = (Graphics2D) g.create();
+
+            g2.setRenderingHint(
+                    RenderingHints.KEY_ANTIALIASING,
+                    RenderingHints.VALUE_ANTIALIAS_ON
+            );
+
+            int panelWidth = getWidth();
+
+            // ==============================
+            // JUDUL GRAFIK DI TENGAH
+            // ==============================
+
+            g2.setColor(Theme.TEXT);
+            g2.setFont(new Font("SansSerif", Font.BOLD, 17));
+
+            FontMetrics fm = g2.getFontMetrics();
+
+            int titleX = (panelWidth - fm.stringWidth(title)) / 2;
+
+            g2.drawString(title, titleX, 30);
+
+            // Garis pemisah judul
+            g2.setColor(new Color(225, 220, 205));
+            g2.drawLine(20, 45, panelWidth - 20, 45);
+
+            // ==============================
+            // JIKA BELUM ADA DATA
+            // ==============================
+
+            if (data.isEmpty()) {
+                g2.setColor(Color.GRAY);
+                g2.setFont(new Font("SansSerif", Font.PLAIN, 13));
+
+                String message = "Belum ada transaksi pada periode ini.";
+
+                int messageX =
+                        (panelWidth - g2.getFontMetrics().stringWidth(message)) / 2;
+
+                g2.drawString(message, messageX, 180);
+
+                g2.dispose();
+                return;
+            }
+
+            // ==============================
+            // MENGHITUNG TOTAL
+            // ==============================
+
+            BigDecimal total = BigDecimal.ZERO;
+
+            for (var item : data) {
+                total = total.add(item.total());
+            }
+
+            if (total.signum() <= 0) {
+                g2.dispose();
+                return;
+            }
+
+            // ==============================
+            // POSISI PIE CHART
+            // ==============================
+
+            int diameter = 190;
+            int x = 18;
+            int y = 85;
+
+            double startAngle = 90;
+
+            for (int i = 0; i < data.size(); i++) {
+                var item = data.get(i);
+
+                double angle = item.total().doubleValue()
+                        / total.doubleValue() * 360;
+
+                g2.setColor(getCategoryColor(item.nama(), i));
+
+                g2.fill(new java.awt.geom.Arc2D.Double(
+                        x,
+                        y,
+                        diameter,
+                        diameter,
+                        startAngle,
+                        -angle,
+                        java.awt.geom.Arc2D.PIE
+                ));
+
+                startAngle -= angle;
+            }
+
+            // ==============================
+            // TOTAL TRANSAKSI
+            // ==============================
+
+            g2.setColor(Theme.TEXT);
+            g2.setFont(new Font("SansSerif", Font.BOLD, 13));
+
+            String totalText = "Total: "
+                    + NumberFormat.getCurrencyInstance(
+                    new Locale("id", "ID")
+            ).format(total);
+
+            g2.drawString(totalText, 20, 310);
+
+            // ==============================
+            // LEGENDA KATEGORI
+            // ==============================
+
+            int legendX = 225;
+            int legendY = 95;
+
+            int batasLebar = panelWidth - legendX - 20;
+
+            for (int i = 0; i < data.size(); i++) {
+                var item = data.get(i);
+
+                Color warna = getCategoryColor(item.nama(), i);
+
+                // Kotak warna
+                g2.setColor(warna);
+                g2.fillRoundRect(
+                        legendX,
+                        legendY,
+                        13,
+                        13,
+                        4,
+                        4
+                );
+
+                // Nama kategori
+                g2.setColor(Theme.TEXT);
+                g2.setFont(new Font("SansSerif", Font.BOLD, 12));
+
+                String namaKategori = item.nama();
+
+                FontMetrics namaFM = g2.getFontMetrics();
+
+                while (namaKategori.length() > 3
+                        && namaFM.stringWidth(namaKategori) > batasLebar - 20) {
+
+                    namaKategori = namaKategori.substring(
+                            0,
+                            namaKategori.length() - 1
+                    );
+                }
+
+                if (!namaKategori.equals(item.nama())) {
+                    namaKategori += "...";
+                }
+
+                g2.drawString(
+                        namaKategori,
+                        legendX + 21,
+                        legendY + 11
+                );
+
+                // Persentase dan nominal
+                g2.setFont(new Font("SansSerif", Font.PLAIN, 10));
+
+                String detail = item.persentase()
+                        + "% | "
+                        + NumberFormat.getCurrencyInstance(
+                        new Locale("id", "ID")
+                ).format(item.total());
+
+                g2.drawString(
+                        detail,
+                        legendX + 21,
+                        legendY + 28
+                );
+
+                legendY += 52;
+            }
+
+            g2.dispose();
+        }
     }
 
     private JScrollPane createTableContainer(JTable table) {
