@@ -1,4 +1,3 @@
-
 package id.dompetku.ui;
 
 import id.dompetku.dao.KeuanganDAO;
@@ -10,6 +9,13 @@ import javax.swing.table.DefaultTableModel;
 import javax.swing.table.JTableHeader;
 
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.geom.AffineTransform;
+import java.awt.geom.Arc2D;
+import java.awt.geom.Area;
+import java.awt.geom.Ellipse2D;
+import java.awt.geom.Point2D;
 import java.math.BigDecimal;
 import java.sql.SQLException;
 import java.text.NumberFormat;
@@ -24,7 +30,13 @@ public class DashboardFrame extends JFrame {
 
     private final Pengguna user;
     private final KeuanganDAO dao = new KeuanganDAO();
-    private final NumberFormat rupiah = NumberFormat.getCurrencyInstance(new Locale("id", "ID"));
+    private final NumberFormat rupiah =
+            NumberFormat.getCurrencyInstance(Locale.forLanguageTag("id-ID"));
+
+    {
+        rupiah.setMinimumFractionDigits(0);
+        rupiah.setMaximumFractionDigits(0);
+    }
     private final DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final List<Runnable> refreshTasks = new ArrayList<>();
@@ -214,15 +226,24 @@ public class DashboardFrame extends JFrame {
                     LocalDate dueDate = LocalDate.parse(u[5]);
                     long daysBetween = java.time.temporal.ChronoUnit.DAYS.between(today, dueDate);
 
+                    boolean piutang = "PIUTANG".equalsIgnoreCase(u[1]);
+                    String pihak = (piutang ? "Piutang dari " : "Utang kepada ") + u[2];
+
                     if (daysBetween < 0) {
                         notifPanel.add(createAlertBox(
-                                "⚠️ PERINGATAN: Utang kepada " + u[2]
+                                "⚠️ PERINGATAN: " + pihak
                                         + " telah LEWAT JATUH TEMPO (" + u[5] + ")!",
                                 Theme.EXPENSE));
 
+                    } else if (daysBetween == 0) {
+                        notifPanel.add(createAlertBox(
+                                "🔔 PERINGATAN: " + pihak
+                                        + " jatuh tempo HARI INI (" + u[5] + ").",
+                                Theme.GOLD));
+
                     } else if (daysBetween <= 3) {
                         notifPanel.add(createAlertBox(
-                                "🔔 PERINGATAN: Utang kepada " + u[2]
+                                "🔔 PERINGATAN: " + pihak
                                         + " akan jatuh tempo dalam " + daysBetween
                                         + " hari (" + u[5] + ").",
                                 Theme.GOLD));
@@ -743,6 +764,27 @@ public class DashboardFrame extends JFrame {
             datePanel.add(comboDay);
             datePanel.add(comboMonth);
             datePanel.add(comboYear);
+
+            // Jumlah hari menyesuaikan bulan & tahun (28/29/30/31)
+            Runnable syncDays = () -> {
+                int month = comboMonth.getSelectedIndex() + 1;
+                int year = Integer.parseInt((String) comboYear.getSelectedItem());
+                int max = YearMonth.of(year, month).lengthOfMonth();
+
+                int selected = Integer.parseInt((String) comboDay.getSelectedItem());
+
+                DefaultComboBoxModel<String> m = new DefaultComboBoxModel<>();
+                for (int i = 1; i <= max; i++) {
+                    m.addElement(String.format("%02d", i));
+                }
+
+                comboDay.setModel(m);
+                comboDay.setSelectedItem(String.format("%02d", Math.min(selected, max)));
+            };
+
+            comboMonth.addActionListener(e -> syncDays.run());
+            comboYear.addActionListener(e -> syncDays.run());
+            syncDays.run();
 
             Runnable loadCats = () -> {
                 kategori.removeAllItems();
@@ -1280,11 +1322,6 @@ public class DashboardFrame extends JFrame {
 
             var wallets = dao.dompet(user.getIdPengguna());
 
-            if (wallets.isEmpty()) {
-                info("Buat dompet terlebih dahulu untuk melakukan pembayaran.");
-                return;
-            }
-
             JComboBox<String> c = combo(
                     rows.stream()
                             .map(r -> r[0] + " | " + r[1] + " - " + r[2]
@@ -1292,12 +1329,12 @@ public class DashboardFrame extends JFrame {
                             .toList()
             );
 
-            JComboBox<String> walletCombo = combo(
-                    wallets.stream()
-                            .map(w -> w.id() + " | " + w.nama()
-                                    + " (" + money(w.saldo()) + ")")
-                            .toList()
-            );
+            java.util.List<String> opsiDompet = new java.util.ArrayList<>();
+            opsiDompet.add("0 | (Tanpa dompet, hanya catat pembayaran)");
+            wallets.forEach(w -> opsiDompet.add(
+                    w.id() + " | " + w.nama() + " (" + money(w.saldo()) + ")"));
+
+            JComboBox<String> walletCombo = combo(opsiDompet);
 
             JTextField n = new JTextField();
 
@@ -1305,7 +1342,7 @@ public class DashboardFrame extends JFrame {
                     this,
                     new Object[]{
                             "Pilih Catatan Utang/Piutang:", c,
-                            "Bayar Menggunakan Dompet:", walletCombo,
+                            "Dompet (UTANG: saldo berkurang, PIUTANG: saldo bertambah):", walletCombo,
                             "Nominal Pembayaran (Rp):", n
                     },
                     "Catat Pembayaran / Angsuran",
@@ -1314,7 +1351,8 @@ public class DashboardFrame extends JFrame {
             }
 
             long idUtang = idFrom(c);
-            long idDompet = idFrom(walletCombo);
+            long pilihDompet = idFrom(walletCombo);
+            Long idDompet = pilihDompet == 0 ? null : pilihDompet;
 
             BigDecimal nominalBayar = amount(n.getText());
 
@@ -1325,7 +1363,9 @@ public class DashboardFrame extends JFrame {
                     idDompet
             );
 
-            info("Pembayaran utang berhasil dicatat, saldo dompet terpotong, dan masuk ke riwayat transaksi.");
+            info(idDompet == null
+                    ? "Pembayaran dicatat tanpa mengubah saldo dompet."
+                    : "Pembayaran dicatat dan saldo dompet diperbarui.");
 
             refreshAll();
 
@@ -1579,43 +1619,239 @@ public class DashboardFrame extends JFrame {
 
     private static class CategoryPiePanel extends JPanel {
 
-        private List<KeuanganDAO.KategoriLaporan> data = new ArrayList<>();
+        private static final NumberFormat RP =
+                NumberFormat.getCurrencyInstance(Locale.forLanguageTag("id-ID"));
+
+        static {
+            RP.setMinimumFractionDigits(0);
+            RP.setMaximumFractionDigits(0);
+        }
+
+        private static final Color[] PALETTE = {
+                new Color(91, 108, 214),   // Indigo
+                new Color(32, 163, 158),   // Teal
+                new Color(238, 108, 88),   // Coral
+                new Color(150, 104, 205),  // Violet
+                new Color(62, 170, 110),   // Emerald
+                new Color(70, 160, 225),   // Biru langit
+                new Color(222, 92, 140),   // Rose
+                new Color(100, 120, 145),  // Slate
+                new Color(110, 190, 170),  // Mint
+                new Color(120, 80, 130)    // Plum
+        };
+
+        private static final int RING_TOP = 72;
+        private static final int MAX_DIAMETER = 220;
+        private static final int ROW_H = 40;
+        private static final double INNER_RATIO = 0.60;
 
         private final String title;
 
-        // Palet warna yang lebih lembut dan sesuai tema DompetKu
-        private final Color[] colors = {
-                new Color(201, 156, 45),  // Gold
-                new Color(54, 140, 132),  // Teal
-                new Color(83, 119, 166),  // Biru
-                new Color(119, 151, 112), // Sage green
-                new Color(139, 112, 163), // Ungu
-                new Color(218, 145, 76),  // Oranye
-                new Color(181, 103, 83),  // Terracotta
-                new Color(105, 125, 137)  // Abu kebiruan
-        };
+        private List<KeuanganDAO.KategoriLaporan> data = new ArrayList<>();
+        private BigDecimal total = BigDecimal.ZERO;
+
+        private double progress = 1.0;
+        private int hover = -1;
+
+        private final List<Rectangle> legendRows = new ArrayList<>();
+        private javax.swing.Timer animator;
 
         public CategoryPiePanel(String title) {
             this.title = title;
 
             setBackground(Color.WHITE);
-            setPreferredSize(new Dimension(430, 420));
-            setMinimumSize(new Dimension(390, 400));
 
             setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createLineBorder(Theme.BORDER),
                     new EmptyBorder(15, 12, 15, 12)
             ));
+
+            MouseAdapter mouse = new MouseAdapter() {
+                @Override
+                public void mouseMoved(MouseEvent e) {
+                    updateHover(e.getPoint());
+                }
+
+                @Override
+                public void mouseExited(MouseEvent e) {
+                    setHover(-1);
+                }
+            };
+
+            addMouseMotionListener(mouse);
+            addMouseListener(mouse);
         }
 
-        public void setData(List<KeuanganDAO.KategoriLaporan> data) {
-            this.data = new ArrayList<>(data);
-            repaint();
+        public void setData(List<KeuanganDAO.KategoriLaporan> newData) {
+            data = new ArrayList<>(newData);
+
+            total = BigDecimal.ZERO;
+            for (var item : data) {
+                total = total.add(item.total());
+            }
+
+            hover = -1;
+            revalidate();
+            startAnimation();
         }
 
-        private Color getCategoryColor(String nama, int index) {
-            return colors[index % colors.length];
+        // ---------------------------------------------------------
+        // ANIMASI: cincin "tumbuh" dari atas searah jarum jam
+        // ---------------------------------------------------------
+
+        private void startAnimation() {
+            if (animator != null) {
+                animator.stop();
+            }
+
+            if (data.isEmpty()) {
+                progress = 1;
+                repaint();
+                return;
+            }
+
+            progress = 0;
+            final long begin = System.nanoTime();
+
+            animator = new javax.swing.Timer(15, e -> {
+                double t = (System.nanoTime() - begin) / 650_000_000.0;
+
+                if (t >= 1) {
+                    t = 1;
+                    ((javax.swing.Timer) e.getSource()).stop();
+                }
+
+                progress = 1 - Math.pow(1 - t, 3); // ease-out
+                repaint();
+            });
+
+            animator.start();
         }
+
+        @Override
+        public Dimension getPreferredSize() {
+            int legendTop = RING_TOP + MAX_DIAMETER + 30;
+            return new Dimension(430, legendTop + data.size() * ROW_H + 24);
+        }
+
+        // ---------------------------------------------------------
+        // HOVER: arahkan mouse ke irisan atau baris legenda
+        // ---------------------------------------------------------
+
+        private void setHover(int index) {
+            if (index != hover) {
+                hover = index;
+                setCursor(index >= 0
+                        ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                        : Cursor.getDefaultCursor());
+                repaint();
+            }
+        }
+
+        private void updateHover(Point p) {
+            int found = -1;
+
+            for (int i = 0; i < legendRows.size(); i++) {
+                if (legendRows.get(i).contains(p)) {
+                    found = i;
+                    break;
+                }
+            }
+
+            if (found < 0 && !data.isEmpty() && total.signum() > 0) {
+                double d = diameter();
+                double cx = getWidth() / 2.0;
+                double cy = RING_TOP + d / 2.0;
+
+                double dx = p.x - cx;
+                double dy = p.y - cy;
+                double dist = Math.sqrt(dx * dx + dy * dy);
+
+                double outer = d / 2.0;
+                double inner = outer * INNER_RATIO;
+
+                if (dist >= inner && dist <= outer + 8) {
+                    // sudut searah jarum jam dari posisi jam 12
+                    double angle = Math.toDegrees(Math.atan2(dx, -dy));
+                    if (angle < 0) angle += 360;
+
+                    double acc = 0;
+
+                    for (int i = 0; i < data.size(); i++) {
+                        double sweep = share(i) * 360;
+
+                        if (angle >= acc && angle < acc + sweep) {
+                            found = i;
+                            break;
+                        }
+
+                        acc += sweep;
+                    }
+                }
+            }
+
+            setHover(found);
+        }
+
+        // ---------------------------------------------------------
+        // UTILITAS
+        // ---------------------------------------------------------
+
+        private int diameter() {
+            return Math.max(120, Math.min(MAX_DIAMETER, getWidth() - 90));
+        }
+
+        private double share(int i) {
+            return data.get(i).total().doubleValue() / total.doubleValue();
+        }
+
+        private Color colorOf(int i) {
+            return PALETTE[i % PALETTE.length];
+        }
+
+        private static Color mix(Color a, Color b, double t) {
+            return new Color(
+                    (int) Math.round(a.getRed() + (b.getRed() - a.getRed()) * t),
+                    (int) Math.round(a.getGreen() + (b.getGreen() - a.getGreen()) * t),
+                    (int) Math.round(a.getBlue() + (b.getBlue() - a.getBlue()) * t)
+            );
+        }
+
+        private static String ellipsize(String s, FontMetrics fm, int maxWidth) {
+            if (fm.stringWidth(s) <= maxWidth) return s;
+
+            String t = s;
+
+            while (t.length() > 1 && fm.stringWidth(t + "…") > maxWidth) {
+                t = t.substring(0, t.length() - 1);
+            }
+
+            return t + "…";
+        }
+
+        private static Font fitFont(Graphics2D g2, String text, int maxWidth,
+                                    int startSize, int style) {
+            int size = startSize;
+            Font f = new Font("SansSerif", style, size);
+
+            while (size > 9 && g2.getFontMetrics(f).stringWidth(text) > maxWidth) {
+                size--;
+                f = new Font("SansSerif", style, size);
+            }
+
+            return f;
+        }
+
+        private static void drawCentered(Graphics2D g2, String text,
+                                         double cx, double baselineY) {
+            FontMetrics fm = g2.getFontMetrics();
+            g2.drawString(text, (float) (cx - fm.stringWidth(text) / 2.0),
+                    (float) baselineY);
+        }
+
+        // ---------------------------------------------------------
+        // PENGGAMBARAN
+        // ---------------------------------------------------------
 
         @Override
         protected void paintComponent(Graphics g) {
@@ -1623,180 +1859,286 @@ public class DashboardFrame extends JFrame {
 
             Graphics2D g2 = (Graphics2D) g.create();
 
-            g2.setRenderingHint(
-                    RenderingHints.KEY_ANTIALIASING,
-                    RenderingHints.VALUE_ANTIALIAS_ON
-            );
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                    RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+                    RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL,
+                    RenderingHints.VALUE_STROKE_PURE);
 
-            int panelWidth = getWidth();
+            int w = getWidth();
 
-            // ==============================
-            // JUDUL GRAFIK DI TENGAH
-            // ==============================
+            drawTitle(g2, w);
 
+            legendRows.clear();
+
+            if (data.isEmpty() || total.signum() <= 0) {
+                drawEmpty(g2, w);
+                g2.dispose();
+                return;
+            }
+
+            drawDonut(g2, w);
+            drawCenterText(g2, w);
+            drawLegend(g2, w);
+
+            g2.dispose();
+        }
+
+        private void drawTitle(Graphics2D g2, int w) {
             g2.setColor(Theme.TEXT);
             g2.setFont(new Font("SansSerif", Font.BOLD, 17));
 
             FontMetrics fm = g2.getFontMetrics();
+            g2.drawString(title, (w - fm.stringWidth(title)) / 2, 30);
 
-            int titleX = (panelWidth - fm.stringWidth(title)) / 2;
-
-            g2.drawString(title, titleX, 30);
-
-            // Garis pemisah judul
             g2.setColor(new Color(225, 220, 205));
-            g2.drawLine(20, 45, panelWidth - 20, 45);
+            g2.drawLine(20, 45, w - 20, 45);
+        }
 
-            // ==============================
-            // JIKA BELUM ADA DATA
-            // ==============================
+        private void drawEmpty(Graphics2D g2, int w) {
+            double d = diameter();
+            double x0 = (w - d) / 2.0;
+            double y0 = RING_TOP;
+            double hole = d * INNER_RATIO;
+            double hx = x0 + (d - hole) / 2.0;
+            double hy = y0 + (d - hole) / 2.0;
 
-            if (data.isEmpty()) {
-                g2.setColor(Color.GRAY);
-                g2.setFont(new Font("SansSerif", Font.PLAIN, 13));
+            Area ring = new Area(new Ellipse2D.Double(x0, y0, d, d));
+            ring.subtract(new Area(new Ellipse2D.Double(hx, hy, hole, hole)));
 
-                String message = "Belum ada transaksi pada periode ini.";
+            g2.setColor(new Color(238, 234, 225));
+            g2.fill(ring);
 
-                int messageX =
-                        (panelWidth - g2.getFontMetrics().stringWidth(message)) / 2;
+            g2.setColor(Color.GRAY);
+            g2.setFont(new Font("SansSerif", Font.PLAIN, 12));
 
-                g2.drawString(message, messageX, 180);
+            double cy = y0 + d / 2.0;
+            drawCentered(g2, "Belum ada transaksi", w / 2.0, cy - 2);
+            drawCentered(g2, "pada periode ini", w / 2.0, cy + 15);
+        }
 
-                g2.dispose();
-                return;
+        private void drawDonut(Graphics2D g2, int w) {
+            double d = diameter();
+            double x0 = (w - d) / 2.0;
+            double y0 = RING_TOP;
+
+            double hole = d * INNER_RATIO;
+            double hx = x0 + (d - hole) / 2.0;
+            double hy = y0 + (d - hole) / 2.0;
+
+            Ellipse2D holeShape = new Ellipse2D.Double(hx, hy, hole, hole);
+
+            // ---- bayangan lembut di bawah cincin (memberi kesan kedalaman)
+            for (int i = 8; i >= 1; i--) {
+                double grow = i * 1.5;
+
+                g2.setColor(new Color(60, 45, 20, 7));
+                g2.fill(new Ellipse2D.Double(
+                        x0 - grow, y0 + 9 - grow, d + 2 * grow, d + 2 * grow
+                ));
             }
 
-            // ==============================
-            // MENGHITUNG TOTAL
-            // ==============================
+            // ---- irisan-irisan cincin
+            int n = data.size();
+            double gap = n > 1 ? 2.5 : 0;
+            double start = 90; // jam 12, bergerak searah jarum jam
 
-            BigDecimal total = BigDecimal.ZERO;
+            for (int i = 0; i < n; i++) {
+                double sweep = share(i) * 360 * progress;
+                double extent = Math.max(sweep - gap, sweep * 0.5);
 
-            for (var item : data) {
-                total = total.add(item.total());
-            }
+                if (extent <= 0.01) {
+                    start -= sweep;
+                    continue;
+                }
 
-            if (total.signum() <= 0) {
-                g2.dispose();
-                return;
-            }
-
-            // ==============================
-            // POSISI PIE CHART
-            // ==============================
-
-            int diameter = 190;
-            int x = 18;
-            int y = 85;
-
-            double startAngle = 90;
-
-            for (int i = 0; i < data.size(); i++) {
-                var item = data.get(i);
-
-                double angle = item.total().doubleValue()
-                        / total.doubleValue() * 360;
-
-                g2.setColor(getCategoryColor(item.nama(), i));
-
-                g2.fill(new java.awt.geom.Arc2D.Double(
-                        x,
-                        y,
-                        diameter,
-                        diameter,
-                        startAngle,
-                        -angle,
-                        java.awt.geom.Arc2D.PIE
+                // satu kategori penuh (360 derajat) digambar sebagai lingkaran utuh
+                // agar tidak ada garis sambungan di posisi jam 12
+                Area seg = extent >= 359.9
+                        ? new Area(new Ellipse2D.Double(x0, y0, d, d))
+                        : new Area(new Arc2D.Double(
+                        x0, y0, d, d,
+                        start - (sweep - extent) / 2.0,
+                        -extent,
+                        Arc2D.PIE
                 ));
 
-                startAngle -= angle;
+                seg.subtract(new Area(holeShape));
+
+                // irisan yang disorot "menonjol" keluar
+                if (i == hover) {
+                    double mid = Math.toRadians(start - sweep / 2.0);
+                    seg.transform(AffineTransform.getTranslateInstance(
+                            Math.cos(mid) * 7, -Math.sin(mid) * 7
+                    ));
+                }
+
+                Color base = colorOf(i);
+
+                if (hover >= 0 && hover != i) {
+                    base = mix(base, Color.WHITE, 0.45); // yang lain meredup
+                }
+
+                Color light = mix(base, Color.WHITE, 0.22);
+                Color dark = mix(base, Color.BLACK, 0.12);
+
+                g2.setPaint(new GradientPaint(
+                        0f, (float) y0, light,
+                        0f, (float) (y0 + d), dark
+                ));
+                g2.fill(seg);
+
+                // tepi tipis terang agar terlihat berlapis
+                g2.setStroke(new BasicStroke(1f));
+                g2.setColor(new Color(255, 255, 255, 90));
+                g2.draw(seg);
+
+                start -= sweep;
             }
 
-            // ==============================
-            // TOTAL TRANSAKSI
-            // ==============================
+            // ---- lubang tengah dengan bayangan dalam
+            g2.setColor(Color.WHITE);
+            g2.fill(holeShape);
 
+            g2.setPaint(new RadialGradientPaint(
+                    new Point2D.Double(w / 2.0, y0 + d / 2.0),
+                    (float) (hole / 2.0),
+                    new float[]{0f, 0.82f, 1f},
+                    new Color[]{
+                            new Color(255, 255, 255, 0),
+                            new Color(255, 255, 255, 0),
+                            new Color(60, 45, 20, 38)
+                    }
+            ));
+            g2.fill(holeShape);
+
+            g2.setStroke(new BasicStroke(1f));
+            g2.setColor(new Color(0, 0, 0, 18));
+            g2.draw(holeShape);
+        }
+
+        private void drawCenterText(Graphics2D g2, int w) {
+            double d = diameter();
+            double cx = w / 2.0;
+            double cy = RING_TOP + d / 2.0;
+            int maxWidth = (int) (d * INNER_RATIO * 0.80);
+
+            String line1;
+            String line2;
+            String line3;
+            Color color1;
+
+            if (hover >= 0 && hover < data.size()) {
+                var item = data.get(hover);
+                line1 = item.nama();
+                line2 = RP.format(item.total());
+                line3 = item.persentase().toPlainString() + "%";
+                color1 = colorOf(hover);
+            } else {
+                line1 = "TOTAL";
+                line2 = RP.format(total);
+                line3 = data.size() + " kategori";
+                color1 = Color.GRAY;
+            }
+
+            g2.setFont(new Font("SansSerif", Font.BOLD, 11));
+            g2.setColor(color1);
+            drawCentered(g2, ellipsize(line1, g2.getFontMetrics(), maxWidth),
+                    cx, cy - 14);
+
+            g2.setFont(fitFont(g2, line2, maxWidth, 17, Font.BOLD));
             g2.setColor(Theme.TEXT);
-            g2.setFont(new Font("SansSerif", Font.BOLD, 13));
+            drawCentered(g2, line2, cx, cy + 8);
 
-            String totalText = "Total: "
-                    + NumberFormat.getCurrencyInstance(
-                    new Locale("id", "ID")
-            ).format(total);
+            g2.setFont(new Font("SansSerif", Font.PLAIN, 11));
+            g2.setColor(Color.GRAY);
+            drawCentered(g2, line3, cx, cy + 26);
+        }
 
-            g2.drawString(totalText, 20, 310);
+        private void drawLegend(Graphics2D g2, int w) {
+            int top = (int) (RING_TOP + diameter() + 30);
+            int padX = 16;
+            int right = w - padX;
 
-            // ==============================
-            // LEGENDA KATEGORI
-            // ==============================
+            Font nameFont = new Font("SansSerif", Font.BOLD, 12);
+            Font pctFont = new Font("SansSerif", Font.PLAIN, 12);
+            Font amtFont = new Font("SansSerif", Font.BOLD, 12);
 
-            int legendX = 225;
-            int legendY = 95;
+            FontMetrics amtFM = g2.getFontMetrics(amtFont);
+            FontMetrics pctFM = g2.getFontMetrics(pctFont);
+            FontMetrics nameFM = g2.getFontMetrics(nameFont);
 
-            int batasLebar = panelWidth - legendX - 20;
+            int amtW = 0;
+            int pctW = 0;
+
+            for (var item : data) {
+                amtW = Math.max(amtW, amtFM.stringWidth(RP.format(item.total())));
+                pctW = Math.max(pctW,
+                        pctFM.stringWidth(item.persentase().toPlainString() + "%"));
+            }
+
+            int amtRight = right;
+            int pctRight = amtRight - amtW - 14;
+            int nameX = 8 + 46;
+            int nameMax = pctRight - pctW - 12 - nameX;
 
             for (int i = 0; i < data.size(); i++) {
                 var item = data.get(i);
 
-                Color warna = getCategoryColor(item.nama(), i);
+                Rectangle row = new Rectangle(8, top + i * ROW_H, w - 16, ROW_H - 2);
+                legendRows.add(row);
 
-                // Kotak warna
-                g2.setColor(warna);
-                g2.fillRoundRect(
-                        legendX,
-                        legendY,
-                        13,
-                        13,
-                        4,
-                        4
-                );
+                if (i == hover) {
+                    g2.setColor(new Color(248, 244, 234));
+                    g2.fillRoundRect(row.x, row.y, row.width, row.height, 12, 12);
+                }
 
-                // Nama kategori
+                int midY = row.y + row.height / 2;
+                Color c = colorOf(i);
+
+                // lingkaran ikon lembut + titik warna (mirip daftar kategori e-wallet)
+                g2.setColor(mix(c, Color.WHITE, 0.80));
+                g2.fillOval(row.x + 10, midY - 13, 26, 26);
+
+                g2.setColor(c);
+                g2.fillOval(row.x + 18, midY - 5, 10, 10);
+
+                // nama kategori
+                g2.setFont(nameFont);
                 g2.setColor(Theme.TEXT);
-                g2.setFont(new Font("SansSerif", Font.BOLD, 12));
-
-                String namaKategori = item.nama();
-
-                FontMetrics namaFM = g2.getFontMetrics();
-
-                while (namaKategori.length() > 3
-                        && namaFM.stringWidth(namaKategori) > batasLebar - 20) {
-
-                    namaKategori = namaKategori.substring(
-                            0,
-                            namaKategori.length() - 1
-                    );
-                }
-
-                if (!namaKategori.equals(item.nama())) {
-                    namaKategori += "...";
-                }
-
                 g2.drawString(
-                        namaKategori,
-                        legendX + 21,
-                        legendY + 11
+                        ellipsize(item.nama(), nameFM, nameMax),
+                        nameX,
+                        midY + (nameFM.getAscent() - nameFM.getDescent()) / 2
                 );
 
-                // Persentase dan nominal
-                g2.setFont(new Font("SansSerif", Font.PLAIN, 10));
-
-                String detail = item.persentase()
-                        + "% | "
-                        + NumberFormat.getCurrencyInstance(
-                        new Locale("id", "ID")
-                ).format(item.total());
-
+                // persentase
+                String pct = item.persentase().toPlainString() + "%";
+                g2.setFont(pctFont);
+                g2.setColor(Color.GRAY);
                 g2.drawString(
-                        detail,
-                        legendX + 21,
-                        legendY + 28
+                        pct,
+                        pctRight - pctFM.stringWidth(pct),
+                        midY + (pctFM.getAscent() - pctFM.getDescent()) / 2
                 );
 
-                legendY += 52;
+                // nominal
+                String amt = RP.format(item.total());
+                g2.setFont(amtFont);
+                g2.setColor(Theme.TEXT);
+                g2.drawString(
+                        amt,
+                        amtRight - amtFM.stringWidth(amt),
+                        midY + (amtFM.getAscent() - amtFM.getDescent()) / 2
+                );
+
+                // garis pemisah antar baris
+                if (i < data.size() - 1) {
+                    g2.setColor(new Color(240, 236, 226));
+                    g2.drawLine(nameX, row.y + ROW_H - 1, right, row.y + ROW_H - 1);
+                }
             }
-
-            g2.dispose();
         }
     }
 
