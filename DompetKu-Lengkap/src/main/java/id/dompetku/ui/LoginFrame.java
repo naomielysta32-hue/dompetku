@@ -17,8 +17,8 @@ public class LoginFrame extends JFrame {
         super("DompetKu • Masuk");
 
         setDefaultCloseOperation(EXIT_ON_CLOSE);
-        setSize(480, 440);
-        setMinimumSize(new Dimension(420, 400));
+        setSize(480, 480);
+        setMinimumSize(new Dimension(420, 440));
         setLocationRelativeTo(null);
 
         JPanel page = Theme.page();
@@ -87,6 +87,24 @@ public class LoginFrame extends JFrame {
         gbc.gridy = 3;
         gbc.insets = new Insets(5, 0, 5, 0);
         form.add(password, gbc);
+
+        // Link "Lupa password?" di bawah kolom password, rata kanan
+        JButton lupa = new JButton("<html><u>Lupa password?</u></html>");
+        lupa.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        lupa.setForeground(Theme.CHARCOAL);
+        lupa.setBorderPainted(false);
+        lupa.setContentAreaFilled(false);
+        lupa.setFocusPainted(false);
+        lupa.setOpaque(false);
+        lupa.setMargin(new Insets(0, 0, 0, 0));
+        lupa.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        lupa.addActionListener(e -> lupaPassword());
+
+        gbc.gridy = 4;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.anchor = GridBagConstraints.EAST;
+        gbc.insets = new Insets(2, 0, 0, 0);
+        form.add(lupa, gbc);
 
         JButton masuk = Theme.button("Masuk");
         masuk.setBackground(Theme.CHARCOAL);
@@ -215,6 +233,140 @@ public class LoginFrame extends JFrame {
         } catch (Exception ex) {
             ex.printStackTrace();
             showError(ex);
+        }
+    }
+
+    // ==========================================
+    // LUPA PASSWORD: username + nama lengkap, lalu password baru
+    // ==========================================
+
+    private void lupaPassword() {
+        PenggunaDAO dao = new PenggunaDAO();
+
+        JTextField user = new JTextField(username.getText().trim());
+        JTextField nama = new JTextField();
+
+        styleInput(user);
+        styleInput(nama);
+
+        Object[] identitas = {
+                "Username", user,
+                "Nama lengkap (sesuai saat daftar)", nama
+        };
+
+        final int maxCoba = 3;
+        boolean cocok = false;
+
+        // Langkah 1: verifikasi username + nama lengkap (maksimal 3 kali coba)
+        for (int coba = 1; coba <= maxCoba && !cocok; coba++) {
+            if (JOptionPane.showConfirmDialog(
+                    this,
+                    identitas,
+                    "Lupa Password",
+                    JOptionPane.OK_CANCEL_OPTION,
+                    JOptionPane.PLAIN_MESSAGE
+            ) != JOptionPane.OK_OPTION) {
+                return;
+            }
+
+            try {
+                cocok = dao.identitasCocok(user.getText(), nama.getText());
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                showError(ex);
+                return;
+            }
+
+            if (!cocok) {
+                int sisa = maxCoba - coba;
+
+                if (sisa == 0) {
+                    JOptionPane.showMessageDialog(
+                            this,
+                            "Terlalu banyak percobaan. Silakan coba lagi nanti.",
+                            "Gagal",
+                            JOptionPane.WARNING_MESSAGE
+                    );
+                    return;
+                }
+
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Username atau nama lengkap tidak sesuai.\nSisa percobaan: " + sisa,
+                        "Gagal",
+                        JOptionPane.WARNING_MESSAGE
+                );
+            }
+        }
+
+        if (!cocok) return;
+
+        // Langkah 2: isi password baru
+        JPasswordField baru = new JPasswordField();
+        JPasswordField ulangi = new JPasswordField();
+
+        styleInput(baru);
+        styleInput(ulangi);
+
+        Object[] fieldsBaru = {
+                "Password baru (minimal 8 karakter)", baru,
+                "Ulangi password baru", ulangi
+        };
+
+        while (true) {
+            if (JOptionPane.showConfirmDialog(
+                    this,
+                    fieldsBaru,
+                    "Buat Password Baru",
+                    JOptionPane.OK_CANCEL_OPTION,
+                    JOptionPane.PLAIN_MESSAGE
+            ) != JOptionPane.OK_OPTION) {
+                return;
+            }
+
+            String p1 = new String(baru.getPassword());
+            String p2 = new String(ulangi.getPassword());
+
+            if (p1.length() < 8) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Password minimal 8 karakter.",
+                        "Peringatan",
+                        JOptionPane.WARNING_MESSAGE
+                );
+                continue;
+            }
+
+            if (!p1.equals(p2)) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Password dan ulangi password tidak sama.",
+                        "Peringatan",
+                        JOptionPane.WARNING_MESSAGE
+                );
+                continue;
+            }
+
+            try {
+                dao.resetPassword(user.getText(), nama.getText(), p1);
+
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Password berhasil diubah. Silakan masuk dengan password baru.",
+                        "Berhasil",
+                        JOptionPane.INFORMATION_MESSAGE
+                );
+
+                username.setText(user.getText().trim());
+                password.setText("");
+                password.requestFocusInWindow();
+                return;
+
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                showError(ex);
+                return;
+            }
         }
     }
 

@@ -21,6 +21,44 @@ public class PenggunaDAO {
   }
  }
 
+ // ==========================================================
+ // LUPA PASSWORD (verifikasi username + nama lengkap)
+ // ==========================================================
+
+ /**
+  * Cek apakah username dan nama lengkap cocok dengan satu akun.
+  * Username harus sama persis seperti saat login. Nama tidak peduli
+  * huruf besar/kecil dan spasi berlebih.
+  */
+ public boolean identitasCocok(String username,String nama)throws SQLException{
+  return cariIdByIdentitas(username,nama)!=null;
+ }
+
+ /**
+  * Reset password tanpa password lama. Identitas diverifikasi ulang di sini,
+  * jadi method ini aman dipanggil langsung.
+  * Melempar IllegalArgumentException bila password baru < 8 karakter.
+  */
+ public void resetPassword(String username,String nama,String passwordBaru)throws SQLException{
+  Long uid=cariIdByIdentitas(username,nama);
+  if(uid==null)throw new SQLException("Username atau nama lengkap tidak sesuai.");
+  String hashBaru=PasswordUtil.hash(passwordBaru);
+  try(Connection c=DatabaseConnection.getConnection();PreparedStatement p=c.prepareStatement("UPDATE pengguna SET password_hash=? WHERE id_pengguna=?")){
+   p.setString(1,hashBaru);p.setLong(2,uid);
+   if(p.executeUpdate()==0)throw new SQLException("Akun tidak ditemukan.");
+  }
+ }
+
+ private Long cariIdByIdentitas(String username,String nama)throws SQLException{
+  if(username==null||nama==null||username.isBlank()||nama.isBlank())return null;
+  String sql="SELECT id_pengguna FROM pengguna WHERE username=? AND LOWER(TRIM(regexp_replace(nama,'\\s+',' ','g')))=LOWER(?)";
+  try(Connection c=DatabaseConnection.getConnection();PreparedStatement p=c.prepareStatement(sql)){
+   p.setString(1,username.trim());
+   p.setString(2,nama.trim().replaceAll("\\s+"," "));
+   try(ResultSet r=p.executeQuery()){return r.next()?r.getLong(1):null;}
+  }
+ }
+
  public record Statistik(int jumlahDompet,int jumlahTransaksi){}
 
  /** Ubah nama dan username. Username harus unik. */
