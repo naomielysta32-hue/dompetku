@@ -150,8 +150,10 @@ public class DashboardFrame extends JFrame {
 
         statusWidgetsGrid.add(createStatCard("Status Target Tabungan",
                 lblStatusTarget, Theme.TEXT, Theme.WHITE));
-        statusWidgetsGrid.add(createStatCard("Status Catatan Utang",
-                lblStatusUtang, Theme.TEXT, Theme.WHITE));
+        // Klik kartu ini untuk langsung membuka halaman Utang-Piutang
+        statusWidgetsGrid.add(createClickableStatCard("Status Catatan Utang",
+                lblStatusUtang, Theme.TEXT, Theme.WHITE,
+                () -> navigate("utang")));
 
         JPanel statsWrapper = new JPanel(new BorderLayout(0, 0));
         statsWrapper.setOpaque(false);
@@ -337,6 +339,38 @@ public class DashboardFrame extends JFrame {
         return card;
     }
 
+    // Kartu statistik yang bisa diklik (kursor tangan + efek hover tipis)
+    private JPanel createClickableStatCard(String title, JLabel valueLabel,
+                                           Color accentColor, Color backgroundColor,
+                                           Runnable onClick) {
+
+        JPanel card = createStatCard(title, valueLabel, accentColor, backgroundColor);
+
+        Color hoverColor = new Color(250, 246, 235);
+
+        card.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        card.setToolTipText("Klik untuk membuka halaman Utang-Piutang");
+
+        card.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                onClick.run();
+            }
+
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                card.setBackground(hoverColor);
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                card.setBackground(backgroundColor);
+            }
+        });
+
+        return card;
+    }
+
     private void loadSummary() {
         try {
             DefaultTableModel rincian = model("Nama Dompet", "Jenis", "Saldo");
@@ -375,13 +409,43 @@ public class DashboardFrame extends JFrame {
 
             var debts = dao.utang(user.getIdPengguna());
 
-            long unpaidDebts = debts.stream()
+            var unpaid = debts.stream()
                     .filter(d -> !"LUNAS".equalsIgnoreCase(d[6]))
-                    .count();
+                    .toList();
 
-            lblStatusUtang.setText(debts.isEmpty()
-                    ? "Tidak ada catatan"
-                    : unpaidDebts + " Catatan Belum Lunas");
+            if (debts.isEmpty()) {
+                lblStatusUtang.setText("Tidak ada catatan");
+
+            } else if (unpaid.isEmpty()) {
+                lblStatusUtang.setText("Semua catatan sudah lunas");
+
+            } else {
+                final int maxShown = 3;
+
+                StringBuilder sb = new StringBuilder("<html>")
+                        .append(unpaid.size())
+                        .append(" Catatan Belum Lunas")
+                        .append("<div style='font-size:11px;font-weight:normal'>");
+
+                for (int i = 0; i < Math.min(maxShown, unpaid.size()); i++) {
+                    String[] d = unpaid.get(i);
+
+                    // d[1]=jenis, d[2]=nama pihak, d[3]=nominal awal, d[4]=sudah dibayar
+                    BigDecimal sisa = new BigDecimal(d[3]).subtract(new BigDecimal(d[4]));
+
+                    sb.append("• ")
+                            .append(escape(d[1])).append(" - ")
+                            .append(escape(d[2]))
+                            .append(" (sisa ").append(money(sisa)).append(")<br>");
+                }
+
+                if (unpaid.size() > maxShown) {
+                    sb.append("+ ").append(unpaid.size() - maxShown).append(" lainnya...");
+                }
+
+                sb.append("</div></html>");
+                lblStatusUtang.setText(sb.toString());
+            }
 
         } catch (Exception ex) {
             error(ex);
@@ -673,7 +737,7 @@ public class DashboardFrame extends JFrame {
         p.add(centerPanel, BorderLayout.CENTER);
 
         loadTransactions(table, "");
-        refreshTasks.add(() -> loadTransactions(table, search.getText()));
+        refreshTasks.add(() -> { search.setText(""); loadTransactions(table, ""); });
 
         return p;
     }
@@ -706,6 +770,10 @@ public class DashboardFrame extends JFrame {
         }
     }
 
+    // ==========================================
+    // CATAT TRANSAKSI - TANPA MENAMPILKAN ID
+    // ==========================================
+
     private void addTransaction() {
         try {
             var wallets = dao.dompet(user.getIdPengguna());
@@ -719,9 +787,10 @@ public class DashboardFrame extends JFrame {
                     new String[]{"PEMASUKAN", "PENGELUARAN"}
             );
 
+            // Hanya nama + saldo. ID tetap ada di list "wallets"
+            // (urutannya sama dengan isi combo).
             JComboBox<String> wallet = combo(wallets.stream()
-                    .map(w -> w.id() + " | " + w.nama()
-                            + " (" + money(w.saldo()) + ")")
+                    .map(w -> w.nama() + " (" + money(w.saldo()) + ")")
                     .toList());
 
             JTextField nominal = new JTextField();
@@ -818,7 +887,7 @@ public class DashboardFrame extends JFrame {
                 return;
             }
 
-            if (wallet.getSelectedItem() == null
+            if (wallet.getSelectedIndex() < 0
                     || kategori.getSelectedItem() == null) {
                 info("Pastikan dompet dan kategori telah dipilih.");
                 return;
@@ -830,16 +899,15 @@ public class DashboardFrame extends JFrame {
             long kid = selectedKategori.id();
 
             String selectedDay = (String) comboDay.getSelectedItem();
-            int selectedMonthIndex = comboMonth.getSelectedIndex() + 1;
-
-            String selectedMonth = String.format("%02d", selectedMonthIndex);
+            String selectedMonth = String.format("%02d", comboMonth.getSelectedIndex() + 1);
             String selectedYear = (String) comboYear.getSelectedItem();
 
             LocalDate parsedDate = LocalDate.parse(
                     selectedYear + "-" + selectedMonth + "-" + selectedDay
             );
 
-            long wid = parseId(wallet.getSelectedItem().toString());
+            // ID asli diambil dari list dompet berdasarkan urutan pilihan
+            long wid = wallets.get(wallet.getSelectedIndex()).id();
 
             Transaksi tr = "PEMASUKAN".equals(type.getSelectedItem())
                     ? new Pemasukan(wid, kid, amount(nominal.getText()),
@@ -1174,6 +1242,10 @@ public class DashboardFrame extends JFrame {
         }
     }
 
+    // ==========================================
+    // SETORAN TABUNGAN - TANPA MENAMPILKAN ID
+    // ==========================================
+
     private void contribute() {
         try {
             var targets = dao.target(user.getIdPengguna());
@@ -1185,7 +1257,7 @@ public class DashboardFrame extends JFrame {
 
             JComboBox<String> c = combo(
                     targets.stream()
-                            .map(r -> r[0] + " | " + r[1] + " (" + r[4] + ")")
+                            .map(r -> r[1] + " (" + r[4] + ")")
                             .toList()
             );
 
@@ -1204,9 +1276,17 @@ public class DashboardFrame extends JFrame {
                 return;
             }
 
+            if (c.getSelectedIndex() < 0) {
+                info("Pilih target tabungan terlebih dahulu.");
+                return;
+            }
+
+            // ID asli diambil dari list target berdasarkan urutan pilihan
+            long idTarget = Long.parseLong(targets.get(c.getSelectedIndex())[0]);
+
             dao.kontribusi(
                     user.getIdPengguna(),
-                    idFrom(c),
+                    idTarget,
                     amount(n.getText()),
                     k.getText()
             );
@@ -1311,6 +1391,10 @@ public class DashboardFrame extends JFrame {
         }
     }
 
+    // ==========================================
+    // BAYAR / CICIL UTANG - TANPA MENAMPILKAN ID
+    // ==========================================
+
     private void payDebt() {
         try {
             var rows = dao.utang(user.getIdPengguna());
@@ -1324,15 +1408,15 @@ public class DashboardFrame extends JFrame {
 
             JComboBox<String> c = combo(
                     rows.stream()
-                            .map(r -> r[0] + " | " + r[1] + " - " + r[2]
-                                    + " (" + r[6] + ")")
+                            .map(r -> r[1] + " - " + r[2] + " (" + r[6] + ")")
                             .toList()
             );
 
-            java.util.List<String> opsiDompet = new java.util.ArrayList<>();
-            opsiDompet.add("0 | (Tanpa dompet, hanya catat pembayaran)");
+            // Indeks 0 = tanpa dompet, indeks 1 dst = wallets.get(indeks - 1)
+            List<String> opsiDompet = new ArrayList<>();
+            opsiDompet.add("(Tanpa dompet, hanya catat pembayaran)");
             wallets.forEach(w -> opsiDompet.add(
-                    w.id() + " | " + w.nama() + " (" + money(w.saldo()) + ")"));
+                    w.nama() + " (" + money(w.saldo()) + ")"));
 
             JComboBox<String> walletCombo = combo(opsiDompet);
 
@@ -1342,7 +1426,7 @@ public class DashboardFrame extends JFrame {
                     this,
                     new Object[]{
                             "Pilih Catatan Utang/Piutang:", c,
-                            "Dompet (UTANG: saldo berkurang, PIUTANG: saldo bertambah):", walletCombo,
+                            "Dompet :", walletCombo,
                             "Nominal Pembayaran (Rp):", n
                     },
                     "Catat Pembayaran / Angsuran",
@@ -1350,9 +1434,18 @@ public class DashboardFrame extends JFrame {
                 return;
             }
 
-            long idUtang = idFrom(c);
-            long pilihDompet = idFrom(walletCombo);
-            Long idDompet = pilihDompet == 0 ? null : pilihDompet;
+            if (c.getSelectedIndex() < 0) {
+                info("Pilih catatan utang/piutang terlebih dahulu.");
+                return;
+            }
+
+            // ID asli diambil dari list berdasarkan urutan pilihan
+            long idUtang = Long.parseLong(rows.get(c.getSelectedIndex())[0]);
+
+            int walletIndex = walletCombo.getSelectedIndex();
+            Long idDompet = walletIndex <= 0
+                    ? null
+                    : wallets.get(walletIndex - 1).id();
 
             BigDecimal nominalBayar = amount(n.getText());
 
@@ -2441,24 +2534,6 @@ public class DashboardFrame extends JFrame {
         }
 
         return c;
-    }
-
-    private long idFrom(JComboBox<String> c) {
-        Object selected = c.getSelectedItem();
-
-        if (selected == null) {
-            throw new IllegalArgumentException(
-                    "Pilih item terlebih dahulu."
-            );
-        }
-
-        return parseId(selected.toString());
-    }
-
-    private long parseId(String text) {
-        return Long.parseLong(
-                text.split("\\s*\\|", 2)[0].trim()
-        );
     }
 
     private void error(Exception e) {

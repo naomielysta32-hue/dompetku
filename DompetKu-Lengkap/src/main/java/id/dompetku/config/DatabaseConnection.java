@@ -26,7 +26,7 @@ public final class DatabaseConnection {
 
   String pass = env(
           "DOMPETKU_DB_PASSWORD",
-          "e"
+          "a"
   );
 
   try {
