@@ -1075,8 +1075,6 @@ public class KeuanganDAO {
                             r.getString(3),
                             r.getString(4),
                             r.getString(5),
-
-                            r.getString(5),
                             r.getString(6),
                             r.getString(7)
                     });
