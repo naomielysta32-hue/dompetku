@@ -49,6 +49,26 @@ public class KeuanganDAO {
                               BigDecimal pengeluaran) {}
 
 
+    // ================= VALIDASI NAMA DOMPET =================
+
+    /** Nama dompet hanya boleh huruf (boleh ada spasi di antara kata). */
+    public static void validasiNamaDompet(String nama) {
+
+        if (nama == null || nama.isBlank())
+            throw new IllegalArgumentException("Nama dompet wajib diisi.");
+
+        String n = nama.trim();
+
+        if (n.length() > 80)
+            throw new IllegalArgumentException("Nama dompet maksimal 80 karakter.");
+
+        if (!n.matches("\\p{L}+( \\p{L}+)*"))
+            throw new IllegalArgumentException(
+                    "Nama dompet hanya boleh berisi huruf (tanpa angka atau simbol)."
+            );
+    }
+
+
     // ================= DOMPET =================
 
     public List<DompetRow> dompet(long uid) throws SQLException {
@@ -95,6 +115,8 @@ public class KeuanganDAO {
 
     public void tambahDompet(Dompet d) throws SQLException {
 
+        validasiNamaDompet(d.getNamaDompet());
+
         String q = """
             INSERT INTO dompet
             (id_pengguna,nama_dompet,jenis_dompet,saldo_awal)
@@ -105,7 +127,7 @@ public class KeuanganDAO {
              PreparedStatement p = c.prepareStatement(q)) {
 
             p.setLong(1, d.getIdPengguna());
-            p.setString(2, d.getNamaDompet());
+            p.setString(2, d.getNamaDompet().trim());
             p.setString(3, d.getJenisDompet());
             p.setBigDecimal(4, d.getSaldoAwal());
 
@@ -124,11 +146,7 @@ public class KeuanganDAO {
                            String jenis, BigDecimal saldoAwal)
             throws SQLException {
 
-        if (nama == null || nama.isBlank())
-            throw new IllegalArgumentException("Nama dompet wajib diisi.");
-
-        if (nama.trim().length() > 80)
-            throw new IllegalArgumentException("Nama dompet maksimal 80 karakter.");
+        validasiNamaDompet(nama);
 
         if (!List.of("TUNAI", "BANK", "EWALLET").contains(jenis))
             throw new IllegalArgumentException("Jenis dompet tidak valid.");
@@ -630,8 +648,26 @@ public class KeuanganDAO {
 
     // ================= RIWAYAT =================
 
+    /** Riwayat semua jenis transaksi (kompatibel dengan kode lama). */
     public List<TransaksiRow> riwayat(long uid, String keyword,
                                       int limit) throws SQLException {
+        return riwayat(uid, keyword, null, limit);
+    }
+
+
+    /**
+     * Riwayat transaksi dengan filter kata kunci dan jenis.
+     * @param jenis "PEMASUKAN", "PENGELUARAN", atau null/kosong untuk semua jenis.
+     */
+    public List<TransaksiRow> riwayat(long uid, String keyword,
+                                      String jenis, int limit)
+            throws SQLException {
+
+        boolean filterJenis = jenis != null && !jenis.isBlank();
+
+        if (filterJenis &&
+                !List.of("PEMASUKAN", "PENGELUARAN").contains(jenis))
+            throw new IllegalArgumentException("Jenis transaksi tidak valid.");
 
         String q = """
             SELECT t.id_transaksi,t.tanggal_transaksi,
@@ -647,6 +683,9 @@ public class KeuanganDAO {
                 OR LOWER(d.nama_dompet) LIKE LOWER(?)
                 OR LOWER(COALESCE(k.nama_kategori,'')) LIKE LOWER(?)
             )
+            """
+                + (filterJenis ? "AND t.jenis_transaksi=?\n" : "")
+                + """
             ORDER BY t.tanggal_transaksi DESC,
                      t.id_transaksi DESC
             LIMIT ?
@@ -657,15 +696,21 @@ public class KeuanganDAO {
         try (Connection c = DatabaseConnection.getConnection();
              PreparedStatement p = c.prepareStatement(q)) {
 
-            p.setLong(1, uid);
+            int i = 1;
+
+            p.setLong(i++, uid);
 
             String k = "%" +
                     (keyword == null ? "" : keyword.trim()) + "%";
 
-            p.setString(2, k);
-            p.setString(3, k);
-            p.setString(4, k);
-            p.setInt(5, Math.max(1, Math.min(500, limit)));
+            p.setString(i++, k);
+            p.setString(i++, k);
+            p.setString(i++, k);
+
+            if (filterJenis)
+                p.setString(i++, jenis);
+
+            p.setInt(i, Math.max(1, Math.min(500, limit)));
 
             try (ResultSet r = p.executeQuery()) {
                 while (r.next()) {
@@ -1041,11 +1086,22 @@ public class KeuanganDAO {
     }
 
 
+    /**
+     * Kolom hasil:
+     * [0] id, [1] nama, [2] target nominal, [3] terkumpul, [4] status,
+     * [5] tanggal target (bisa null), [6] tanggal setoran pertama (bisa null),
+     * [7] tanggal setoran terakhir (bisa null),
+     * [8] jumlah hari berbeda yang ada setoran.
+     */
     public List<String[]> target(long uid) throws SQLException {
 
         String q = """
             SELECT s.id_target,s.nama_target,s.target_nominal,
-            COALESCE(SUM(k.nominal),0),s.status_target
+            COALESCE(SUM(k.nominal),0),s.status_target,
+            s.tanggal_target,
+            MIN(k.tanggal_kontribusi)::date,
+            MAX(k.tanggal_kontribusi)::date,
+            COUNT(DISTINCT k.tanggal_kontribusi::date)
 
             FROM target_tabungan s
             LEFT JOIN kontribusi_tabungan k
@@ -1054,7 +1110,8 @@ public class KeuanganDAO {
             WHERE s.id_pengguna=?
 
             GROUP BY s.id_target,s.nama_target,
-                     s.target_nominal,s.status_target
+                     s.target_nominal,s.status_target,
+                     s.tanggal_target
 
             ORDER BY s.id_target DESC
             """;
@@ -1073,7 +1130,11 @@ public class KeuanganDAO {
                             r.getString(2),
                             r.getString(3),
                             r.getString(4),
-                            r.getString(5)
+                            r.getString(5),
+                            r.getString(6),
+                            r.getString(7),
+                            r.getString(8),
+                            r.getString(9)
                     });
                 }
             }
