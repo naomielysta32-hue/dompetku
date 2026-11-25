@@ -1,8 +1,28 @@
 package id.dompetku.util;
+
 import org.mindrot.jbcrypt.BCrypt;
-/** Hash password dengan BCrypt; jangan pernah simpan password plaintext. */
+
+/**
+ * Utilitas keamanan password menggunakan algoritma hash BCrypt.
+ */
+// [OOP - Encapsulation]: Constructor private mencegah pembuatan objek; detail hashing dan verifikasi dibungkus dalam method static.
 public final class PasswordUtil {
- private PasswordUtil(){}
- public static String hash(String s){if(s==null||s.length()<8)throw new IllegalArgumentException("Password minimal 8 karakter.");return BCrypt.hashpw(s,BCrypt.gensalt(12));}
- public static boolean verify(String s,String hash){try{return s!=null&&hash!=null&&BCrypt.checkpw(s,hash);}catch(IllegalArgumentException e){return false;}}
+    private PasswordUtil() {}
+
+    /** Membuat hash BCrypt baru untuk disimpan ke database. */
+    public static String hash(String s) {
+        if (s == null || s.length() < 8) {
+            throw new IllegalArgumentException("Password minimal 8 karakter.");
+        }
+        return BCrypt.hashpw(s, BCrypt.gensalt(12));
+    }
+
+    /** Membandingkan password masukan dengan hash yang tersimpan. */
+    public static boolean verify(String s, String hash) {
+        try {
+            return s != null && hash != null && BCrypt.checkpw(s, hash);
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
 }
