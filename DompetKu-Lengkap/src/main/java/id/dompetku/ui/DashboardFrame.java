@@ -547,7 +547,7 @@ public class DashboardFrame extends JFrame {
                 "Saldo Awal (Rp):", saldo
         };
 
-        if (JOptionPane.showConfirmDialog(
+        if (Dialogs.showConfirmDialog(
                 this, fields, "Tambah Dompet Baru",
                 JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) {
             return;
@@ -609,7 +609,7 @@ public class DashboardFrame extends JFrame {
                     note
             };
 
-            if (JOptionPane.showConfirmDialog(
+            if (Dialogs.showConfirmDialog(
                     this, fields, "Edit Dompet",
                     JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) {
                 return;
@@ -674,7 +674,7 @@ public class DashboardFrame extends JFrame {
 
             Object[] options = {"Hapus", "Batal"};
 
-            int choice = JOptionPane.showOptionDialog(
+            int choice = Dialogs.showOptionDialog(
                     this,
                     new JLabel(msg.toString()),
                     "Hapus Dompet",
@@ -881,7 +881,7 @@ public class DashboardFrame extends JFrame {
                     "Catatan/Keterangan:", ket
             };
 
-            if (JOptionPane.showConfirmDialog(
+            if (Dialogs.showConfirmDialog(
                     this, fields, "Catat Transaksi",
                     JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) {
                 return;
@@ -930,7 +930,7 @@ public class DashboardFrame extends JFrame {
                 new String[]{"PEMASUKAN", "PENGELUARAN"}
         );
 
-        if (JOptionPane.showConfirmDialog(
+        if (Dialogs.showConfirmDialog(
                 this,
                 new Object[]{
                         "Nama Kategori:", n,
@@ -980,7 +980,7 @@ public class DashboardFrame extends JFrame {
             JTextField nominal = new JTextField();
             JTextField ket = new JTextField();
 
-            if (JOptionPane.showConfirmDialog(
+            if (Dialogs.showConfirmDialog(
                     this,
                     new Object[]{
                             "Dompet Sumber (Dari):", src,
@@ -1034,7 +1034,7 @@ public class DashboardFrame extends JFrame {
             areaBukti.setEditable(false);
             areaBukti.setFont(new Font("Monospaced", Font.PLAIN, 13));
 
-            JOptionPane.showConfirmDialog(
+            Dialogs.showConfirmDialog(
                     this,
                     new JScrollPane(areaBukti),
                     "Transfer Berhasil - Cetak Bukti",
@@ -1122,7 +1122,7 @@ public class DashboardFrame extends JFrame {
 
             JTextField batas = new JTextField();
 
-            if (JOptionPane.showConfirmDialog(
+            if (Dialogs.showConfirmDialog(
                     this,
                     new Object[]{
                             "Kategori Pengeluaran:", c,
@@ -1215,7 +1215,7 @@ public class DashboardFrame extends JFrame {
                 LocalDate.now().plusMonths(6).toString()
         );
 
-        if (JOptionPane.showConfirmDialog(
+        if (Dialogs.showConfirmDialog(
                 this,
                 new Object[]{
                         "Nama Impian/Target:", n,
@@ -1264,7 +1264,7 @@ public class DashboardFrame extends JFrame {
             JTextField n = new JTextField();
             JTextField k = new JTextField();
 
-            if (JOptionPane.showConfirmDialog(
+            if (Dialogs.showConfirmDialog(
                     this,
                     new Object[]{
                             "Target Impian:", c,
@@ -1362,7 +1362,7 @@ public class DashboardFrame extends JFrame {
                 LocalDate.now().plusMonths(1).toString()
         );
 
-        if (JOptionPane.showConfirmDialog(
+        if (Dialogs.showConfirmDialog(
                 this,
                 new Object[]{
                         "Jenis Catatan:", jenis,
@@ -1422,7 +1422,7 @@ public class DashboardFrame extends JFrame {
 
             JTextField n = new JTextField();
 
-            if (JOptionPane.showConfirmDialog(
+            if (Dialogs.showConfirmDialog(
                     this,
                     new Object[]{
                             "Pilih Catatan Utang/Piutang:", c,
@@ -2557,7 +2557,7 @@ public class DashboardFrame extends JFrame {
             msg = e.getMessage() == null ? e.toString() : e.getMessage();
         }
 
-        JOptionPane.showMessageDialog(
+        Dialogs.showMessageDialog(
                 this,
                 msg,
                 "Kesalahan",
@@ -2566,6 +2566,6 @@ public class DashboardFrame extends JFrame {
     }
 
     private void info(String s) {
-        JOptionPane.showMessageDialog(this, s);
+        Dialogs.showMessageDialog(this, s);
     }
 }

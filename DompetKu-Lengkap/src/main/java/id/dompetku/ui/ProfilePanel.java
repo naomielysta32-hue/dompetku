@@ -200,7 +200,7 @@ public class ProfilePanel extends JPanel {
             user.setUsername(fieldUsername.getText().trim());
             reload();
             onProfileChanged.run();
-            JOptionPane.showMessageDialog(this, "Profil berhasil diperbarui.", "Berhasil", JOptionPane.INFORMATION_MESSAGE);
+            Dialogs.showMessageDialog(this, "Profil berhasil diperbarui.", "Berhasil", JOptionPane.INFORMATION_MESSAGE);
         } catch (Exception ex) {
             showError(ex);
         }
@@ -242,7 +242,7 @@ public class ProfilePanel extends JPanel {
             fieldLama.setText("");
             fieldBaru.setText("");
             fieldUlang.setText("");
-            JOptionPane.showMessageDialog(this, "Password berhasil diubah.", "Berhasil", JOptionPane.INFORMATION_MESSAGE);
+            Dialogs.showMessageDialog(this, "Password berhasil diubah.", "Berhasil", JOptionPane.INFORMATION_MESSAGE);
         } catch (Exception ex) {
             showError(ex);
         }
@@ -306,6 +306,6 @@ public class ProfilePanel extends JPanel {
 
     private void showError(Exception ex) {
         String msg = ex.getMessage() == null ? ex.toString() : ex.getMessage();
-        JOptionPane.showMessageDialog(this, msg, "Tidak bisa disimpan", JOptionPane.WARNING_MESSAGE);
+        Dialogs.showMessageDialog(this, msg, "Tidak bisa disimpan", JOptionPane.WARNING_MESSAGE);
     }
 }
