@@ -1045,7 +1045,8 @@ public class KeuanganDAO {
 
         String q = """
             SELECT s.id_target,s.nama_target,s.target_nominal,
-            COALESCE(SUM(k.nominal),0),s.status_target
+            COALESCE(SUM(k.nominal),0),s.status_target,
+            s.tanggal_target,MIN(k.tanggal_kontribusi)::date
 
             FROM target_tabungan s
             LEFT JOIN kontribusi_tabungan k
@@ -1073,7 +1074,11 @@ public class KeuanganDAO {
                             r.getString(2),
                             r.getString(3),
                             r.getString(4),
-                            r.getString(5)
+                            r.getString(5),
+
+                            r.getString(5),
+                            r.getString(6),
+                            r.getString(7)
                     });
                 }
             }

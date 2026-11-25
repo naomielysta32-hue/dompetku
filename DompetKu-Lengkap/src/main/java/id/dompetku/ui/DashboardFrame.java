@@ -7,6 +7,10 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.JTableHeader;
+import javax.swing.text.AbstractDocument;
+import javax.swing.text.AttributeSet;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.DocumentFilter;
 
 import java.awt.*;
 import java.awt.event.MouseAdapter;
@@ -37,7 +41,8 @@ public class DashboardFrame extends JFrame {
         rupiah.setMinimumFractionDigits(0);
         rupiah.setMaximumFractionDigits(0);
     }
-    private final DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private final DateTimeFormatter dateFormatter =
+            DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.forLanguageTag("id-ID"));
 
     private final List<Runnable> refreshTasks = new ArrayList<>();
 
@@ -148,8 +153,11 @@ public class DashboardFrame extends JFrame {
         statusWidgetsGrid.setOpaque(false);
         statusWidgetsGrid.setBorder(new EmptyBorder(8, 0, 0, 0));
 
-        statusWidgetsGrid.add(createStatCard("Status Target Tabungan",
-                lblStatusTarget, Theme.TEXT, Theme.WHITE));
+        JPanel targetCard = createClickableStatCard("Status Target Tabungan",
+                lblStatusTarget, Theme.TEXT, Theme.WHITE,
+                () -> navigate("tabungan"));
+        targetCard.setToolTipText("Klik untuk membuka halaman Target Tabungan");
+        statusWidgetsGrid.add(targetCard);
         // Klik kartu ini untuk langsung membuka halaman Utang-Piutang
         statusWidgetsGrid.add(createClickableStatCard("Status Catatan Utang",
                 lblStatusUtang, Theme.TEXT, Theme.WHITE,
@@ -234,20 +242,20 @@ public class DashboardFrame extends JFrame {
                     if (daysBetween < 0) {
                         notifPanel.add(createAlertBox(
                                 "⚠️ PERINGATAN: " + pihak
-                                        + " telah LEWAT JATUH TEMPO (" + u[5] + ")!",
+                                        + " telah LEWAT JATUH TEMPO (" + tgl(u[5]) + ")!",
                                 Theme.EXPENSE));
 
                     } else if (daysBetween == 0) {
                         notifPanel.add(createAlertBox(
                                 "🔔 PERINGATAN: " + pihak
-                                        + " jatuh tempo HARI INI (" + u[5] + ").",
+                                        + " jatuh tempo HARI INI (" + tgl(u[5]) + ").",
                                 Theme.GOLD));
 
                     } else if (daysBetween <= 3) {
                         notifPanel.add(createAlertBox(
                                 "🔔 PERINGATAN: " + pihak
                                         + " akan jatuh tempo dalam " + daysBetween
-                                        + " hari (" + u[5] + ").",
+                                        + " hari (" + tgl(u[5]) + ").",
                                 Theme.GOLD));
                     }
                 }
@@ -540,6 +548,9 @@ public class DashboardFrame extends JFrame {
         );
 
         JTextField saldo = new JTextField("0");
+        rupiahInput(saldo);
+        allowOnly(nama, "[\\p{L}\\p{N} ]*", 30);
+        rupiahInput(saldo);
 
         Object[] fields = {
                 "Nama Dompet:", nama,
@@ -547,19 +558,25 @@ public class DashboardFrame extends JFrame {
                 "Saldo Awal (Rp):", saldo
         };
 
-        if (JOptionPane.showConfirmDialog(
+        if (Dialogs.showConfirmDialog(
                 this, fields, "Tambah Dompet Baru",
                 JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) {
             return;
         }
 
         try {
+            String namaBersih = nama.getText().trim();
+            if (!namaBersih.matches(".*\\p{L}.*")) {
+                info("Nama dompet harus berisi minimal satu huruf.");
+                return;
+            }
+
             BigDecimal s = amountOrZero(saldo.getText());
 
             Dompet d = switch ((String) jenis.getSelectedItem()) {
-                case "BANK" -> new RekeningBank(user.getIdPengguna(), nama.getText(), s);
-                case "EWALLET" -> new EWallet(user.getIdPengguna(), nama.getText(), s);
-                default -> new DompetTunai(user.getIdPengguna(), nama.getText(), s);
+                case "BANK" -> new RekeningBank(user.getIdPengguna(), namaBersih, s);
+                case "EWALLET" -> new EWallet(user.getIdPengguna(), namaBersih, s);
+                default -> new DompetTunai(user.getIdPengguna(), namaBersih, s);
             };
 
             dao.tambahDompet(d);
@@ -587,6 +604,7 @@ public class DashboardFrame extends JFrame {
                     ));
 
             JTextField nama = new JTextField(w.nama());
+            allowOnly(nama, "[\\p{L}\\p{N} ]*", 30);
 
             JComboBox<String> jenis = new JComboBox<>(
                     new String[]{"TUNAI", "BANK", "EWALLET"}
@@ -595,6 +613,7 @@ public class DashboardFrame extends JFrame {
             jenis.setSelectedItem(w.jenis());
 
             JTextField saldoAwal = new JTextField(plain(w.saldoAwal()));
+            rupiahInput(saldoAwal);
 
             JLabel note = new JLabel(
                     "<html><div style='width:260px;color:#7A6A55'>Saldo saat ini <b>"
@@ -609,7 +628,7 @@ public class DashboardFrame extends JFrame {
                     note
             };
 
-            if (JOptionPane.showConfirmDialog(
+            if (Dialogs.showConfirmDialog(
                     this, fields, "Edit Dompet",
                     JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) {
                 return;
@@ -674,7 +693,7 @@ public class DashboardFrame extends JFrame {
 
             Object[] options = {"Hapus", "Batal"};
 
-            int choice = JOptionPane.showOptionDialog(
+            int choice = Dialogs.showOptionDialog(
                     this,
                     new JLabel(msg.toString()),
                     "Hapus Dompet",
@@ -702,6 +721,7 @@ public class DashboardFrame extends JFrame {
         styleTable(table);
 
         JTextField search = new JTextField(16);
+        JComboBox<String> jenisFilter = new JComboBox<>(new String[]{"Semua", "Pemasukan", "Pengeluaran"});
 
         JButton find = Theme.button("Cari");
         JButton add = Theme.button("+ Catat Transaksi");
@@ -711,6 +731,7 @@ public class DashboardFrame extends JFrame {
         searchBar.setOpaque(false);
         searchBar.add(new JLabel("Pencarian:"));
         searchBar.add(search);
+        searchBar.add(jenisFilter);
         searchBar.add(find);
 
         JPanel actionBtns = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
@@ -724,7 +745,8 @@ public class DashboardFrame extends JFrame {
         actionBar.add(searchBar, BorderLayout.WEST);
         actionBar.add(actionBtns, BorderLayout.EAST);
 
-        find.addActionListener(e -> loadTransactions(table, search.getText()));
+        find.addActionListener(e -> loadTransactions(table, search.getText(), (String) jenisFilter.getSelectedItem()));
+        jenisFilter.addActionListener(e -> loadTransactions(table, search.getText(), (String) jenisFilter.getSelectedItem()));
         add.addActionListener(e -> addTransaction());
         cat.addActionListener(e -> addCategory());
 
@@ -736,13 +758,13 @@ public class DashboardFrame extends JFrame {
         p.add(Theme.heading("Riwayat Transaksi Keuangan"), BorderLayout.NORTH);
         p.add(centerPanel, BorderLayout.CENTER);
 
-        loadTransactions(table, "");
-        refreshTasks.add(() -> { search.setText(""); loadTransactions(table, ""); });
+        loadTransactions(table, "", "Semua");
+        refreshTasks.add(() -> { search.setText(""); jenisFilter.setSelectedItem("Semua"); loadTransactions(table, "", "Semua"); });
 
         return p;
     }
 
-    private void loadTransactions(JTable table, String keyword) {
+    private void loadTransactions(JTable table, String keyword, String filterJenis) {
         try {
             DefaultTableModel m = model(
                     "ID", "Tanggal & Waktu", "Jenis",
@@ -750,7 +772,11 @@ public class DashboardFrame extends JFrame {
             );
 
             for (var r : dao.riwayat(user.getIdPengguna(), keyword, 300)) {
-                m.addRow(new Object[]{
+                if (!"Semua".equals(filterJenis)
+                        && !String.valueOf(r.jenis()).equalsIgnoreCase(filterJenis)) {
+                    continue;
+                }
+                m.addRow(new Object[] {
                         r.id(),
                         r.tanggal().format(dateFormatter),
                         r.jenis(),
@@ -794,6 +820,7 @@ public class DashboardFrame extends JFrame {
                     .toList());
 
             JTextField nominal = new JTextField();
+            rupiahInput(nominal);
             JTextField ket = new JTextField();
 
             JComboBox<KeuanganDAO.KategoriRow> kategori = kategoriCombo();
@@ -881,7 +908,7 @@ public class DashboardFrame extends JFrame {
                     "Catatan/Keterangan:", ket
             };
 
-            if (JOptionPane.showConfirmDialog(
+            if (Dialogs.showConfirmDialog(
                     this, fields, "Catat Transaksi",
                     JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) {
                 return;
@@ -925,12 +952,13 @@ public class DashboardFrame extends JFrame {
 
     private void addCategory() {
         JTextField n = new JTextField();
+        allowOnly(n, "[^0-9]*", 30);
 
         JComboBox<String> t = new JComboBox<>(
                 new String[]{"PEMASUKAN", "PENGELUARAN"}
         );
 
-        if (JOptionPane.showConfirmDialog(
+        if (Dialogs.showConfirmDialog(
                 this,
                 new Object[]{
                         "Nama Kategori:", n,
@@ -942,6 +970,10 @@ public class DashboardFrame extends JFrame {
         }
 
         try {
+            if (n.getText().isBlank()) {
+                info("Nama kategori tidak boleh kosong.");
+                return;
+            }
             dao.tambahKategori(
                     user.getIdPengguna(),
                     n.getText(),
@@ -978,9 +1010,10 @@ public class DashboardFrame extends JFrame {
             JComboBox<String> dst = combo(items, 1);
 
             JTextField nominal = new JTextField();
+            rupiahInput(nominal);
             JTextField ket = new JTextField();
 
-            if (JOptionPane.showConfirmDialog(
+            if (Dialogs.showConfirmDialog(
                     this,
                     new Object[]{
                             "Dompet Sumber (Dari):", src,
@@ -1034,7 +1067,7 @@ public class DashboardFrame extends JFrame {
             areaBukti.setEditable(false);
             areaBukti.setFont(new Font("Monospaced", Font.PLAIN, 13));
 
-            JOptionPane.showConfirmDialog(
+            Dialogs.showConfirmDialog(
                     this,
                     new JScrollPane(areaBukti),
                     "Transfer Berhasil - Cetak Bukti",
@@ -1075,21 +1108,21 @@ public class DashboardFrame extends JFrame {
         try {
             DefaultTableModel m = model(
                     "ID", "Kategori", "Mulai", "Selesai",
-                    "Batas Anggaran", "Terpakai", "Penggunaan"
+                    "Batas Anggaran", "Terpakai", "Penggunaan", "Status"
             );
 
             for (String[] r : dao.anggaran(user.getIdPengguna())) {
                 BigDecimal limit = new BigDecimal(r[4]);
                 BigDecimal used = new BigDecimal(r[5]);
-
                 String pct = limit.signum() == 0
                         ? "-"
                         : used.multiply(new BigDecimal("100"))
                         .divide(limit, 1, java.math.RoundingMode.HALF_UP) + "%";
 
                 m.addRow(new Object[]{
-                        r[0], r[1], r[2], r[3],
-                        money(limit), money(used), pct
+                        r[0], r[1], tgl(r[2]), tgl(r[3]),
+                        money(limit), money(used), pct,
+                        used.compareTo(limit) > 0 ? "Lebih" : "Aman"
                 });
             }
 
@@ -1121,8 +1154,9 @@ public class DashboardFrame extends JFrame {
             );
 
             JTextField batas = new JTextField();
+            rupiahInput(batas);
 
-            if (JOptionPane.showConfirmDialog(
+            if (Dialogs.showConfirmDialog(
                     this,
                     new Object[]{
                             "Kategori Pengeluaran:", c,
@@ -1186,21 +1220,81 @@ public class DashboardFrame extends JFrame {
     private void loadTargets(JTable table) {
         try {
             DefaultTableModel m = model(
-                    "ID", "Nama Target", "Target Nominal", "Terkumpul", "Status"
+                    "ID", "Nama Target", "Target Nominal", "Terkumpul",
+                    "Status", "Tenggat", "Estimasi Tercapai", "Rekomendasi Nabung"
             );
 
+            Locale idn = Locale.forLanguageTag("id-ID");
+            DateTimeFormatter bulanFmt = DateTimeFormatter.ofPattern("MMMM yyyy", idn);
+
             for (String[] r : dao.target(user.getIdPengguna())) {
+                BigDecimal target = new BigDecimal(r[2]);
+                BigDecimal kumpul = new BigDecimal(r[3]);
+                BigDecimal sisa = target.subtract(kumpul);
+                LocalDate tenggat = r[5] == null ? null : LocalDate.parse(r[5]);
+                LocalDate setoranPertama = r[6] == null ? null : LocalDate.parse(r[6]);
+
+                String estimasi;
+                String rekomendasi;
+
+                if ("TERCAPAI".equalsIgnoreCase(r[4]) || sisa.signum() <= 0) {
+                    estimasi = "Sudah tercapai";
+                    rekomendasi = "-";
+
+                } else {
+                    // ---- Estimasi: rata-rata setoran per bulan sejak setoran pertama
+                    if (kumpul.signum() <= 0 || setoranPertama == null) {
+                        estimasi = "Belum ada setoran";
+                    } else {
+                        long bulanBerjalan = java.time.temporal.ChronoUnit.MONTHS.between(
+                                YearMonth.from(setoranPertama), YearMonth.now()) + 1;
+                        BigDecimal rataPerBulan = kumpul.divide(
+                                BigDecimal.valueOf(bulanBerjalan), 2, java.math.RoundingMode.HALF_UP);
+                        long bulanLagi = sisa.divide(
+                                rataPerBulan, 0, java.math.RoundingMode.CEILING).longValue();
+
+                        YearMonth perkiraan = YearMonth.now().plusMonths(bulanLagi);
+                        estimasi = perkiraan.format(bulanFmt);
+
+                        if (tenggat != null && perkiraan.isAfter(YearMonth.from(tenggat))) {
+                            estimasi += " (lewat tenggat)";
+                        }
+                    }
+
+                    // ---- Rekomendasi nabung per hari / per bulan sampai tenggat
+                    if (tenggat == null) {
+                        rekomendasi = "-";
+                    } else {
+                        long hari = java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), tenggat);
+
+                        if (hari <= 0) {
+                            rekomendasi = "Tenggat terlewati, sisa " + money(sisa);
+                        } else {
+                            long bulan = Math.max(1, (long) Math.ceil(hari / 30.0));
+                            BigDecimal perHari = sisa.divide(
+                                    BigDecimal.valueOf(hari), 0, java.math.RoundingMode.CEILING);
+                            BigDecimal perBulan = sisa.divide(
+                                    BigDecimal.valueOf(bulan), 0, java.math.RoundingMode.CEILING);
+                            rekomendasi = money(perHari) + "/hari atau " + money(perBulan) + "/bulan";
+                        }
+                    }
+                }
+
                 m.addRow(new Object[]{
                         r[0],
                         r[1],
-                        money(new BigDecimal(r[2])),
-                        money(new BigDecimal(r[3])),
-                        r[4]
+                        money(target),
+                        money(kumpul),
+                        r[4],
+                        tgl(r[5]),
+                        estimasi,
+                        rekomendasi
                 });
             }
 
             table.setModel(m);
             hideIdColumn(table);
+            setColumnWidths(table, 150, 120, 120, 90, 120, 170, 280);
 
         } catch (Exception e) {
             error(e);
@@ -1210,12 +1304,13 @@ public class DashboardFrame extends JFrame {
     private void addTarget() {
         JTextField n = new JTextField();
         JTextField v = new JTextField();
+        rupiahInput(v);
 
         JTextField d = new JTextField(
                 LocalDate.now().plusMonths(6).toString()
         );
 
-        if (JOptionPane.showConfirmDialog(
+        if (Dialogs.showConfirmDialog(
                 this,
                 new Object[]{
                         "Nama Impian/Target:", n,
@@ -1262,9 +1357,10 @@ public class DashboardFrame extends JFrame {
             );
 
             JTextField n = new JTextField();
+            rupiahInput(n);
             JTextField k = new JTextField();
 
-            if (JOptionPane.showConfirmDialog(
+            if (Dialogs.showConfirmDialog(
                     this,
                     new Object[]{
                             "Target Impian:", c,
@@ -1337,7 +1433,7 @@ public class DashboardFrame extends JFrame {
                         r[2],
                         money(new BigDecimal(r[3])),
                         money(new BigDecimal(r[4])),
-                        r[5],
+                        (tgl(r[5])),
                         r[6]
                 });
             }
@@ -1362,7 +1458,7 @@ public class DashboardFrame extends JFrame {
                 LocalDate.now().plusMonths(1).toString()
         );
 
-        if (JOptionPane.showConfirmDialog(
+        if (Dialogs.showConfirmDialog(
                 this,
                 new Object[]{
                         "Jenis Catatan:", jenis,
@@ -1421,8 +1517,9 @@ public class DashboardFrame extends JFrame {
             JComboBox<String> walletCombo = combo(opsiDompet);
 
             JTextField n = new JTextField();
+            rupiahInput(n);
 
-            if (JOptionPane.showConfirmDialog(
+            if (Dialogs.showConfirmDialog(
                     this,
                     new Object[]{
                             "Pilih Catatan Utang/Piutang:", c,
@@ -2362,6 +2459,15 @@ public class DashboardFrame extends JFrame {
                             }
                         }
 
+                        String v = value == null ? "" : value.toString();
+                        if ("Lebih".equals(v)) {
+                            label.setForeground(Theme.EXPENSE);
+                            label.setFont(new Font("SansSerif", Font.BOLD, 14));
+                        } else if ("Aman".equals(v)) {
+                            label.setForeground(Theme.INCOME);
+                            label.setFont(new Font("SansSerif", Font.BOLD, 14));
+                        }
+
                         return label;
                     }
                 });
@@ -2536,6 +2642,79 @@ public class DashboardFrame extends JFrame {
         return c;
     }
 
+    // ===== HELPER REVISI =====
+
+    // Rev 2: input nominal otomatis berformat 1.500.000 saat diketik
+    private void rupiahInput(JTextField f) {
+        String awal = f.getText();
+        int koma = awal.indexOf(',');
+        if (koma >= 0) awal = awal.substring(0, koma);
+        f.setText(formatRibuan(awal.replaceAll("\\D", "")));
+
+        ((AbstractDocument) f.getDocument()).setDocumentFilter(new DocumentFilter() {
+            @Override
+            public void insertString(FilterBypass fb, int off, String s, AttributeSet a)
+                    throws BadLocationException {
+                replace(fb, off, 0, s, a);
+            }
+
+            @Override
+            public void replace(FilterBypass fb, int off, int len, String s, AttributeSet a)
+                    throws BadLocationException {
+                String cur = fb.getDocument().getText(0, fb.getDocument().getLength());
+                String next = cur.substring(0, off) + (s == null ? "" : s) + cur.substring(off + len);
+                String digits = next.replaceAll("\\D", "");
+                if (digits.length() > 15) return;
+                fb.replace(0, cur.length(), formatRibuan(digits), a);
+            }
+
+            @Override
+            public void remove(FilterBypass fb, int off, int len) throws BadLocationException {
+                replace(fb, off, len, "", null);
+            }
+        });
+    }
+
+    private String formatRibuan(String digits) {
+        if (digits.isEmpty()) return "";
+        return NumberFormat.getIntegerInstance(Locale.forLanguageTag("id-ID"))
+                .format(new java.math.BigInteger(digits));
+    }
+
+    // Rev 4 & 5: karakter yang tidak sesuai regex tidak bisa diketik / di-paste
+    private void allowOnly(JTextField f, String regex, int maxLen) {
+        ((AbstractDocument) f.getDocument()).setDocumentFilter(new DocumentFilter() {
+            @Override
+            public void insertString(FilterBypass fb, int off, String s, AttributeSet a)
+                    throws BadLocationException {
+                replace(fb, off, 0, s, a);
+            }
+
+            @Override
+            public void replace(FilterBypass fb, int off, int len, String s, AttributeSet a)
+                    throws BadLocationException {
+                String cur = fb.getDocument().getText(0, fb.getDocument().getLength());
+                String next = cur.substring(0, off) + (s == null ? "" : s) + cur.substring(off + len);
+                if (next.length() <= maxLen && next.matches(regex)) {
+                    super.replace(fb, off, len, s, a);
+                } else {
+                    Toolkit.getDefaultToolkit().beep();
+                }
+            }
+        });
+    }
+
+    // Rev 3: "2026-12-25" -> "25 Desember 2026"
+    private String tgl(String iso) {
+        if (iso == null || iso.isBlank()) return "-";
+        try {
+            return LocalDate.parse(iso.substring(0, Math.min(10, iso.length())))
+                    .format(dateFormatter);
+        } catch (Exception e) {
+            return iso;
+        }
+    }
+
     private void error(Exception e) {
         String msg;
 
@@ -2557,7 +2736,7 @@ public class DashboardFrame extends JFrame {
             msg = e.getMessage() == null ? e.toString() : e.getMessage();
         }
 
-        JOptionPane.showMessageDialog(
+        Dialogs.showMessageDialog(
                 this,
                 msg,
                 "Kesalahan",
@@ -2566,6 +2745,6 @@ public class DashboardFrame extends JFrame {
     }
 
     private void info(String s) {
-        JOptionPane.showMessageDialog(this, s);
+        Dialogs.showMessageDialog(this, s);
     }
 }
