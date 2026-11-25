@@ -1,12 +1,27 @@
 package id.dompetku.ui;
 
+import com.lowagie.text.Document;
+import com.lowagie.text.Element;
+import com.lowagie.text.FontFactory;
+import com.lowagie.text.PageSize;
+import com.lowagie.text.Paragraph;
+import com.lowagie.text.Phrase;
+import com.lowagie.text.pdf.PdfPCell;
+import com.lowagie.text.pdf.PdfPTable;
+import com.lowagie.text.pdf.PdfWriter;
+import com.toedter.calendar.JDateChooser;
 import id.dompetku.dao.KeuanganDAO;
 import id.dompetku.model.*;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.JTableHeader;
+import javax.swing.text.AbstractDocument;
+import javax.swing.text.AttributeSet;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.DocumentFilter;
 
 import java.awt.*;
 import java.awt.event.MouseAdapter;
@@ -16,13 +31,17 @@ import java.awt.geom.Arc2D;
 import java.awt.geom.Area;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Point2D;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.math.BigDecimal;
 import java.sql.SQLException;
 import java.text.NumberFormat;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
@@ -535,6 +554,7 @@ public class DashboardFrame extends JFrame {
 
     private void addWallet() {
         JTextField nama = new JTextField();
+        pasangFilterTanpaAngka(nama);
         JComboBox<String> jenis = new JComboBox<>(
                 new String[]{"TUNAI", "BANK", "EWALLET"}
         );
@@ -554,6 +574,9 @@ public class DashboardFrame extends JFrame {
         }
 
         try {
+            if (nama.getText().trim().matches(".*\\d.*")) {
+                throw new IllegalArgumentException("Nama tidak boleh mengandung angka.");
+            }
             BigDecimal s = amountOrZero(saldo.getText());
 
             Dompet d = switch ((String) jenis.getSelectedItem()) {
@@ -587,6 +610,7 @@ public class DashboardFrame extends JFrame {
                     ));
 
             JTextField nama = new JTextField(w.nama());
+            pasangFilterTanpaAngka(nama);
 
             JComboBox<String> jenis = new JComboBox<>(
                     new String[]{"TUNAI", "BANK", "EWALLET"}
@@ -613,6 +637,10 @@ public class DashboardFrame extends JFrame {
                     this, fields, "Edit Dompet",
                     JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) {
                 return;
+            }
+
+            if (nama.getText().trim().matches(".*\\d.*")) {
+                throw new IllegalArgumentException("Nama tidak boleh mengandung angka.");
             }
 
             dao.ubahDompet(
@@ -771,7 +799,7 @@ public class DashboardFrame extends JFrame {
     }
 
     // ==========================================
-    // CATAT TRANSAKSI - TANPA MENAMPILKAN ID
+    // CATAT TRANSAKSI - POP-UP KALENDER (REVISI #10)
     // ==========================================
 
     private void addTransaction() {
@@ -787,8 +815,6 @@ public class DashboardFrame extends JFrame {
                     new String[]{"PEMASUKAN", "PENGELUARAN"}
             );
 
-            // Hanya nama + saldo. ID tetap ada di list "wallets"
-            // (urutannya sama dengan isi combo).
             JComboBox<String> wallet = combo(wallets.stream()
                     .map(w -> w.nama() + " (" + money(w.saldo()) + ")")
                     .toList());
@@ -798,62 +824,8 @@ public class DashboardFrame extends JFrame {
 
             JComboBox<KeuanganDAO.KategoriRow> kategori = kategoriCombo();
 
-            LocalDate now = LocalDate.now();
-
-            String[] days = new String[31];
-
-            for (int i = 0; i < 31; i++) {
-                days[i] = String.format("%02d", i + 1);
-            }
-
-            JComboBox<String> comboDay = new JComboBox<>(days);
-            comboDay.setSelectedItem(String.format("%02d", now.getDayOfMonth()));
-
-            String[] months = {
-                    "Januari", "Februari", "Maret", "April",
-                    "Mei", "Juni", "Juli", "Agustus",
-                    "September", "Oktober", "November", "Desember"
-            };
-
-            JComboBox<String> comboMonth = new JComboBox<>(months);
-            comboMonth.setSelectedIndex(now.getMonthValue() - 1);
-
-            int currentYear = now.getYear();
-
-            String[] years = {
-                    String.valueOf(currentYear),
-                    String.valueOf(currentYear - 1),
-                    String.valueOf(currentYear - 2)
-            };
-
-            JComboBox<String> comboYear = new JComboBox<>(years);
-
-            JPanel datePanel = new JPanel(new GridLayout(1, 3, 5, 0));
-            datePanel.setOpaque(false);
-            datePanel.add(comboDay);
-            datePanel.add(comboMonth);
-            datePanel.add(comboYear);
-
-            // Jumlah hari menyesuaikan bulan & tahun (28/29/30/31)
-            Runnable syncDays = () -> {
-                int month = comboMonth.getSelectedIndex() + 1;
-                int year = Integer.parseInt((String) comboYear.getSelectedItem());
-                int max = YearMonth.of(year, month).lengthOfMonth();
-
-                int selected = Integer.parseInt((String) comboDay.getSelectedItem());
-
-                DefaultComboBoxModel<String> m = new DefaultComboBoxModel<>();
-                for (int i = 1; i <= max; i++) {
-                    m.addElement(String.format("%02d", i));
-                }
-
-                comboDay.setModel(m);
-                comboDay.setSelectedItem(String.format("%02d", Math.min(selected, max)));
-            };
-
-            comboMonth.addActionListener(e -> syncDays.run());
-            comboYear.addActionListener(e -> syncDays.run());
-            syncDays.run();
+            // Revisi #10: pop-up kalender pada input tanggal transaksi
+            JDateChooser dateChooser = buatDateChooser(LocalDate.now());
 
             Runnable loadCats = () -> {
                 kategori.removeAllItems();
@@ -876,7 +848,7 @@ public class DashboardFrame extends JFrame {
                     "Jenis Transaksi:", type,
                     "Pilih Dompet:", wallet,
                     "Nominal (Rp):", nominal,
-                    "Pilih Tanggal:", datePanel,
+                    "Pilih Tanggal:", dateChooser,
                     "Kategori:", kategori,
                     "Catatan/Keterangan:", ket
             };
@@ -893,20 +865,12 @@ public class DashboardFrame extends JFrame {
                 return;
             }
 
+            LocalDate parsedDate = ambilTanggal(dateChooser);
+
             KeuanganDAO.KategoriRow selectedKategori =
                     (KeuanganDAO.KategoriRow) kategori.getSelectedItem();
 
             long kid = selectedKategori.id();
-
-            String selectedDay = (String) comboDay.getSelectedItem();
-            String selectedMonth = String.format("%02d", comboMonth.getSelectedIndex() + 1);
-            String selectedYear = (String) comboYear.getSelectedItem();
-
-            LocalDate parsedDate = LocalDate.parse(
-                    selectedYear + "-" + selectedMonth + "-" + selectedDay
-            );
-
-            // ID asli diambil dari list dompet berdasarkan urutan pilihan
             long wid = wallets.get(wallet.getSelectedIndex()).id();
 
             Transaksi tr = "PEMASUKAN".equals(type.getSelectedItem())
@@ -925,6 +889,7 @@ public class DashboardFrame extends JFrame {
 
     private void addCategory() {
         JTextField n = new JTextField();
+        pasangFilterTanpaAngka(n);
 
         JComboBox<String> t = new JComboBox<>(
                 new String[]{"PEMASUKAN", "PENGELUARAN"}
@@ -942,6 +907,9 @@ public class DashboardFrame extends JFrame {
         }
 
         try {
+            if (n.getText().trim().matches(".*\\d.*")) {
+                throw new IllegalArgumentException("Nama kategori tidak boleh mengandung angka.");
+            }
             dao.tambahKategori(
                     user.getIdPengguna(),
                     n.getText(),
@@ -968,8 +936,6 @@ public class DashboardFrame extends JFrame {
                 return;
             }
 
-            // Nama dan saldo saja yang ditampilkan.
-            // ID tetap tersimpan pada data wallets.
             List<String> items = wallets.stream()
                     .map(w -> w.nama() + " (" + money(w.saldo()) + ")")
                     .toList();
@@ -998,7 +964,6 @@ public class DashboardFrame extends JFrame {
                 return;
             }
 
-            // Mengambil ID asli dari daftar dompet berdasarkan pilihan.
             long sourceId = wallets.get(src.getSelectedIndex()).id();
             long destinationId = wallets.get(dst.getSelectedIndex()).id();
 
@@ -1112,13 +1077,9 @@ public class DashboardFrame extends JFrame {
 
             JComboBox<KeuanganDAO.KategoriRow> c = kategoriCombo(cats);
 
-            JTextField mulai = new JTextField(
-                    YearMonth.now().atDay(1).toString()
-            );
-
-            JTextField akhir = new JTextField(
-                    YearMonth.now().atEndOfMonth().toString()
-            );
+            // Revisi #10: pop-up kalender untuk tanggal mulai & selesai anggaran
+            JDateChooser mulai = buatDateChooser(YearMonth.now().atDay(1));
+            JDateChooser akhir = buatDateChooser(YearMonth.now().atEndOfMonth());
 
             JTextField batas = new JTextField();
 
@@ -1126,8 +1087,8 @@ public class DashboardFrame extends JFrame {
                     this,
                     new Object[]{
                             "Kategori Pengeluaran:", c,
-                            "Tanggal Mulai (YYYY-MM-DD):", mulai,
-                            "Tanggal Selesai (YYYY-MM-DD):", akhir,
+                            "Tanggal Mulai:", mulai,
+                            "Tanggal Selesai:", akhir,
                             "Batas Anggaran (Rp):", batas
                     },
                     "Tambah Anggaran Pengeluaran",
@@ -1146,8 +1107,8 @@ public class DashboardFrame extends JFrame {
             dao.tambahAnggaran(
                     user.getIdPengguna(),
                     selectedKategori.id(),
-                    LocalDate.parse(mulai.getText()),
-                    LocalDate.parse(akhir.getText()),
+                    ambilTanggal(mulai),
+                    ambilTanggal(akhir),
                     amount(batas.getText())
             );
 
@@ -1209,18 +1170,18 @@ public class DashboardFrame extends JFrame {
 
     private void addTarget() {
         JTextField n = new JTextField();
+        pasangFilterTanpaAngka(n);
         JTextField v = new JTextField();
 
-        JTextField d = new JTextField(
-                LocalDate.now().plusMonths(6).toString()
-        );
+        // Revisi #10: pop-up kalender untuk tenggat tanggal target tabungan
+        JDateChooser d = buatDateChooser(LocalDate.now().plusMonths(6));
 
         if (Dialogs.showConfirmDialog(
                 this,
                 new Object[]{
                         "Nama Impian/Target:", n,
                         "Target Nominal (Rp):", v,
-                        "Tenggat Tanggal (YYYY-MM-DD):", d
+                        "Tenggat Tanggal:", d
                 },
                 "Buat Target Tabungan Baru",
                 JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) {
@@ -1228,11 +1189,14 @@ public class DashboardFrame extends JFrame {
         }
 
         try {
+            if (n.getText().trim().matches(".*\\d.*")) {
+                throw new IllegalArgumentException("Nama target tidak boleh mengandung angka.");
+            }
             dao.tambahTarget(
                     user.getIdPengguna(),
                     n.getText(),
                     amount(v.getText()),
-                    LocalDate.parse(d.getText())
+                    ambilTanggal(d)
             );
 
             refreshAll();
@@ -1281,7 +1245,6 @@ public class DashboardFrame extends JFrame {
                 return;
             }
 
-            // ID asli diambil dari list target berdasarkan urutan pilihan
             long idTarget = Long.parseLong(targets.get(c.getSelectedIndex())[0]);
 
             dao.kontribusi(
@@ -1356,11 +1319,13 @@ public class DashboardFrame extends JFrame {
         );
 
         JTextField pihak = new JTextField();
+        // Revisi #9: input nama pihak di catatan utang tidak bisa terinput angka
+        pasangFilterTanpaAngka(pihak);
+
         JTextField nom = new JTextField();
 
-        JTextField tempo = new JTextField(
-                LocalDate.now().plusMonths(1).toString()
-        );
+        // Revisi #10: pop-up kalender untuk tanggal jatuh tempo
+        JDateChooser tempo = buatDateChooser(LocalDate.now().plusMonths(1));
 
         if (Dialogs.showConfirmDialog(
                 this,
@@ -1368,7 +1333,7 @@ public class DashboardFrame extends JFrame {
                         "Jenis Catatan:", jenis,
                         "Nama Pihak (Orang/Lembaga):", pihak,
                         "Nominal Utama (Rp):", nom,
-                        "Jatuh Tempo (YYYY-MM-DD):", tempo
+                        "Jatuh Tempo:", tempo
                 },
                 "Catat Utang/Piutang Baru",
                 JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) {
@@ -1376,12 +1341,16 @@ public class DashboardFrame extends JFrame {
         }
 
         try {
+            if (pihak.getText().trim().matches(".*\\d.*")) {
+                throw new IllegalArgumentException("Nama pihak tidak boleh mengandung angka.");
+            }
+
             dao.tambahUtang(
                     user.getIdPengguna(),
                     (String) jenis.getSelectedItem(),
                     pihak.getText(),
                     amount(nom.getText()),
-                    LocalDate.parse(tempo.getText())
+                    ambilTanggal(tempo)
             );
 
             refreshAll();
@@ -1392,7 +1361,7 @@ public class DashboardFrame extends JFrame {
     }
 
     // ==========================================
-    // BAYAR / CICIL UTANG - TANPA MENAMPILKAN ID
+    // BAYAR / CICIL UTANG - HAPUS OPSI TANPA DOMPET (REVISI #11)
     // ==========================================
 
     private void payDebt() {
@@ -1406,17 +1375,22 @@ public class DashboardFrame extends JFrame {
 
             var wallets = dao.dompet(user.getIdPengguna());
 
+            // Revisi #11: karena opsi "Tanpa dompet" dihapus, wajib ada dompet aktif
+            if (wallets.isEmpty()) {
+                info("Buat dompet terlebih dahulu untuk mencatat pembayaran utang/piutang.");
+                return;
+            }
+
             JComboBox<String> c = combo(
                     rows.stream()
                             .map(r -> r[1] + " - " + r[2] + " (" + r[6] + ")")
                             .toList()
             );
 
-            // Indeks 0 = tanpa dompet, indeks 1 dst = wallets.get(indeks - 1)
-            List<String> opsiDompet = new ArrayList<>();
-            opsiDompet.add("(Tanpa dompet, hanya catat pembayaran)");
-            wallets.forEach(w -> opsiDompet.add(
-                    w.nama() + " (" + money(w.saldo()) + ")"));
+            // Revisi #11: hanya menampilkan daftar dompet aktif (tanpa opsi "Tanpa dompet")
+            List<String> opsiDompet = wallets.stream()
+                    .map(w -> w.nama() + " (" + money(w.saldo()) + ")")
+                    .toList();
 
             JComboBox<String> walletCombo = combo(opsiDompet);
 
@@ -1426,7 +1400,7 @@ public class DashboardFrame extends JFrame {
                     this,
                     new Object[]{
                             "Pilih Catatan Utang/Piutang:", c,
-                            "Dompet :", walletCombo,
+                            "Pilih Dompet:", walletCombo,
                             "Nominal Pembayaran (Rp):", n
                     },
                     "Catat Pembayaran / Angsuran",
@@ -1434,18 +1408,13 @@ public class DashboardFrame extends JFrame {
                 return;
             }
 
-            if (c.getSelectedIndex() < 0) {
-                info("Pilih catatan utang/piutang terlebih dahulu.");
+            if (c.getSelectedIndex() < 0 || walletCombo.getSelectedIndex() < 0) {
+                info("Pilih catatan utang/piutang dan dompet terlebih dahulu.");
                 return;
             }
 
-            // ID asli diambil dari list berdasarkan urutan pilihan
             long idUtang = Long.parseLong(rows.get(c.getSelectedIndex())[0]);
-
-            int walletIndex = walletCombo.getSelectedIndex();
-            Long idDompet = walletIndex <= 0
-                    ? null
-                    : wallets.get(walletIndex - 1).id();
+            long idDompet = wallets.get(walletCombo.getSelectedIndex()).id();
 
             BigDecimal nominalBayar = amount(n.getText());
 
@@ -1456,9 +1425,7 @@ public class DashboardFrame extends JFrame {
                     idDompet
             );
 
-            info(idDompet == null
-                    ? "Pembayaran dicatat tanpa mengubah saldo dompet."
-                    : "Pembayaran dicatat dan saldo dompet diperbarui.");
+            info("Pembayaran dicatat dan saldo dompet diperbarui.");
 
             refreshAll();
 
@@ -1470,16 +1437,11 @@ public class DashboardFrame extends JFrame {
     private JPanel reports() {
         JPanel p = Theme.page();
 
-        JTextField start = new JTextField(
-                YearMonth.now().atDay(1).toString(), 14
-        );
-
-        JTextField end = new JTextField(
-                YearMonth.now().atEndOfMonth().toString(), 14
-        );
-
-        start.setFont(new Font("SansSerif", Font.PLAIN, 15));
-        end.setFont(new Font("SansSerif", Font.PLAIN, 15));
+        // Revisi #10: pop-up kalender pada filter tanggal mulai & selesai laporan
+        JDateChooser start = buatDateChooser(YearMonth.now().atDay(1));
+        JDateChooser end = buatDateChooser(YearMonth.now().atEndOfMonth());
+        start.setPreferredSize(new Dimension(150, 34));
+        end.setPreferredSize(new Dimension(150, 34));
 
         JTextArea out = new JTextArea();
         out.setEditable(false);
@@ -1493,12 +1455,13 @@ public class DashboardFrame extends JFrame {
                 new CategoryPiePanel("RINCIAN PENGELUARAN");
 
         JButton show = Theme.button("Tampilkan Laporan");
-        JButton csv = Theme.button("Ekspor File CSV");
+        // Revisi #12: hanya ekspor PDF saja (hapus CSV)
+        JButton pdf = Theme.buttonDark("Ekspor File PDF");
 
         show.addActionListener(e -> {
             try {
-                LocalDate mulai = LocalDate.parse(start.getText());
-                LocalDate akhir = LocalDate.parse(end.getText());
+                LocalDate mulai = ambilTanggal(start);
+                LocalDate akhir = ambilTanggal(end);
 
                 var ringkasan = dao.ringkasan(
                         user.getIdPengguna(), mulai, akhir
@@ -1616,25 +1579,24 @@ public class DashboardFrame extends JFrame {
             }
         });
 
-        csv.addActionListener(e -> {
+        // Revisi #12: ekspor laporan dalam format PDF menggunakan OpenPDF
+        pdf.addActionListener(e -> {
             try {
-                LocalDate mulai = LocalDate.parse(start.getText());
-                LocalDate akhir = LocalDate.parse(end.getText());
+                LocalDate mulai = ambilTanggal(start);
+                LocalDate akhir = ambilTanggal(end);
 
                 JFileChooser fc = new JFileChooser();
-                fc.setSelectedFile(
-                        new java.io.File("laporan-dompetku.csv")
-                );
+                fc.setFileFilter(new FileNameExtensionFilter("Dokumen PDF (*.pdf)", "pdf"));
+                fc.setSelectedFile(new File("laporan-dompetku.pdf"));
 
                 if (fc.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
-                    dao.eksporCsv(
-                            user.getIdPengguna(),
-                            fc.getSelectedFile().toPath(),
-                            mulai,
-                            akhir
-                    );
+                    File targetFile = fc.getSelectedFile();
+                    if (!targetFile.getName().toLowerCase(Locale.ROOT).endsWith(".pdf")) {
+                        targetFile = new File(targetFile.getAbsolutePath() + ".pdf");
+                    }
 
-                    info("Laporan CSV berhasil diekspor.");
+                    eksporLaporanPdf(targetFile, mulai, akhir);
+                    info("Laporan PDF berhasil diekspor ke:\n" + targetFile.getAbsolutePath());
                 }
 
             } catch (Exception ex) {
@@ -1658,7 +1620,7 @@ public class DashboardFrame extends JFrame {
         filterBar.add(lblEnd);
         filterBar.add(end);
         filterBar.add(show);
-        filterBar.add(csv);
+        filterBar.add(pdf);
 
         JPanel reportWrapper = new JPanel(new BorderLayout(0, 10));
         reportWrapper.setOpaque(false);
@@ -1708,6 +1670,181 @@ public class DashboardFrame extends JFrame {
         p.add(reportWrapper, BorderLayout.CENTER);
 
         return p;
+    }
+
+    /** Revisi #12: Membuat dokumen laporan keuangan lengkap dalam format PDF. */
+    private void eksporLaporanPdf(File file, LocalDate mulai, LocalDate akhir) throws Exception {
+        if (akhir.isBefore(mulai)) {
+            throw new IllegalArgumentException("Tanggal selesai tidak boleh lebih awal dari tanggal mulai.");
+        }
+
+        var ringkasan = dao.ringkasan(user.getIdPengguna(), mulai, akhir);
+        var kategoriPemasukan = dao.rincianKategori(user.getIdPengguna(), "PEMASUKAN", mulai, akhir);
+        var kategoriPengeluaran = dao.rincianKategori(user.getIdPengguna(), "PENGELUARAN", mulai, akhir);
+        var riwayatSemua = dao.riwayat(user.getIdPengguna(), "", 1000);
+
+        Document doc = new Document(PageSize.A4, 36, 36, 40, 40);
+        try (FileOutputStream fos = new FileOutputStream(file)) {
+            PdfWriter.getInstance(doc, fos);
+            doc.open();
+
+            com.lowagie.text.Font titleFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16, Color.DARK_GRAY);
+            com.lowagie.text.Font subFont = FontFactory.getFont(FontFactory.HELVETICA, 10, Color.GRAY);
+            com.lowagie.text.Font secFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12, Color.BLACK);
+            com.lowagie.text.Font headFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, Color.WHITE);
+            com.lowagie.text.Font bodyFont = FontFactory.getFont(FontFactory.HELVETICA, 10, Color.BLACK);
+
+            Paragraph title = new Paragraph("LAPORAN KEUANGAN DOMPETKU", titleFont);
+            title.setAlignment(Element.ALIGN_CENTER);
+            doc.add(title);
+
+            Paragraph meta = new Paragraph(
+                    "Pemilik Akun: " + user.getNama() + " (@" + user.getUsername() + ")\n"
+                            + "Periode Laporan: " + mulai + " s.d. " + akhir + "\n\n",
+                    subFont
+            );
+            meta.setAlignment(Element.ALIGN_CENTER);
+            doc.add(meta);
+
+            // 1. Tabel Ringkasan Keuangan
+            doc.add(new Paragraph("1. Ringkasan Keuangan", secFont));
+            PdfPTable tblSum = new PdfPTable(2);
+            tblSum.setWidthPercentage(100);
+            tblSum.setSpacingBefore(6);
+            tblSum.setSpacingAfter(14);
+            addPdfHeader(tblSum, headFont, "Keterangan", "Jumlah");
+            addPdfRow(tblSum, bodyFont, "Total Pemasukan", money(ringkasan.pemasukan()));
+            addPdfRow(tblSum, bodyFont, "Total Pengeluaran", money(ringkasan.pengeluaran()));
+            addPdfRow(tblSum, bodyFont, "Selisih Bersih / Cashflow", money(ringkasan.selisih()));
+            doc.add(tblSum);
+
+            // 2. Tabel Rincian Pemasukan per Kategori
+            doc.add(new Paragraph("2. Rincian Pemasukan per Kategori", secFont));
+            PdfPTable tblIn = new PdfPTable(3);
+            tblIn.setWidthPercentage(100);
+            tblIn.setSpacingBefore(6);
+            tblIn.setSpacingAfter(14);
+            addPdfHeader(tblIn, headFont, "Kategori", "Total", "Persentase");
+            if (kategoriPemasukan.isEmpty()) {
+                addPdfRow(tblIn, bodyFont, "Belum ada data pemasukan", "-", "-");
+            } else {
+                for (var item : kategoriPemasukan) {
+                    addPdfRow(tblIn, bodyFont, item.nama(), money(item.total()),
+                            item.persentase().toPlainString() + "%");
+                }
+            }
+            doc.add(tblIn);
+
+            // 3. Tabel Rincian Pengeluaran per Kategori
+            doc.add(new Paragraph("3. Rincian Pengeluaran per Kategori", secFont));
+            PdfPTable tblOut = new PdfPTable(3);
+            tblOut.setWidthPercentage(100);
+            tblOut.setSpacingBefore(6);
+            tblOut.setSpacingAfter(14);
+            addPdfHeader(tblOut, headFont, "Kategori", "Total", "Persentase");
+            if (kategoriPengeluaran.isEmpty()) {
+                addPdfRow(tblOut, bodyFont, "Belum ada data pengeluaran", "-", "-");
+            } else {
+                for (var item : kategoriPengeluaran) {
+                    addPdfRow(tblOut, bodyFont, item.nama(), money(item.total()),
+                            item.persentase().toPlainString() + "%");
+                }
+            }
+            doc.add(tblOut);
+
+            // 4. Tabel Riwayat Transaksi dalam Periode
+            doc.add(new Paragraph("4. Daftar Transaksi Periode Terpilih", secFont));
+            PdfPTable tblTrx = new PdfPTable(new float[]{2.2f, 1.8f, 2f, 2.2f, 2.2f, 3f});
+            tblTrx.setWidthPercentage(100);
+            tblTrx.setSpacingBefore(6);
+            addPdfHeader(tblTrx, headFont, "Tanggal", "Jenis", "Dompet", "Kategori", "Nominal", "Keterangan");
+
+            boolean adaTrx = false;
+            for (var r : riwayatSemua) {
+                LocalDate tglTrx = r.tanggal().toLocalDate();
+                if (!tglTrx.isBefore(mulai) && !tglTrx.isAfter(akhir)) {
+                    adaTrx = true;
+                    addPdfRow(
+                            tblTrx,
+                            bodyFont,
+                            tglTrx.toString(),
+                            r.jenis(),
+                            r.dompet(),
+                            r.kategori(),
+                            money(r.nominal()),
+                            r.keterangan() == null ? "-" : r.keterangan()
+                    );
+                }
+            }
+            if (!adaTrx) {
+                addPdfRow(tblTrx, bodyFont, "-", "-", "Tidak ada transaksi pada periode ini", "-", "-", "-");
+            }
+            doc.add(tblTrx);
+
+            doc.close();
+        }
+    }
+
+    private void addPdfHeader(PdfPTable table, com.lowagie.text.Font font, String... headers) {
+        for (String h : headers) {
+            PdfPCell cell = new PdfPCell(new Phrase(h, font));
+            cell.setBackgroundColor(new Color(45, 45, 45));
+            cell.setPadding(6);
+            table.addCell(cell);
+        }
+    }
+
+    private void addPdfRow(PdfPTable table, com.lowagie.text.Font font, String... values) {
+        for (String v : values) {
+            PdfPCell cell = new PdfPCell(new Phrase(v == null ? "" : v, font));
+            cell.setPadding(5);
+            table.addCell(cell);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // HELPER POP-UP KALENDER (REVISI #10) & FILTER NAMA TANPA ANGKA (REVISI #9)
+    // ------------------------------------------------------------------
+
+    private JDateChooser buatDateChooser(LocalDate initialDate) {
+        JDateChooser chooser = new JDateChooser();
+        chooser.setDateFormatString("yyyy-MM-dd");
+        chooser.setFont(new Font("SansSerif", Font.PLAIN, 14));
+        chooser.setPreferredSize(new Dimension(220, 36));
+        if (initialDate != null) {
+            chooser.setDate(Date.from(initialDate.atStartOfDay(ZoneId.systemDefault()).toInstant()));
+        }
+        return chooser;
+    }
+
+    private LocalDate ambilTanggal(JDateChooser chooser) {
+        Date d = chooser.getDate();
+        if (d == null) {
+            throw new IllegalArgumentException("Tanggal wajib dipilih melalui kalender.");
+        }
+        return d.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+    }
+
+    private void pasangFilterTanpaAngka(JTextField field) {
+        ((AbstractDocument) field.getDocument()).setDocumentFilter(new DocumentFilter() {
+            @Override
+            public void insertString(FilterBypass fb, int offset, String string, AttributeSet attr)
+                    throws BadLocationException {
+                if (string != null) {
+                    string = string.replaceAll("\\d", "");
+                }
+                super.insertString(fb, offset, string, attr);
+            }
+
+            @Override
+            public void replace(FilterBypass fb, int offset, int length, String text, AttributeSet attrs)
+                    throws BadLocationException {
+                if (text != null) {
+                    text = text.replaceAll("\\d", "");
+                }
+                super.replace(fb, offset, length, text, attrs);
+            }
+        });
     }
 
     private static class CategoryPiePanel extends JPanel {
@@ -1788,10 +1925,6 @@ public class DashboardFrame extends JFrame {
             startAnimation();
         }
 
-        // ---------------------------------------------------------
-        // ANIMASI: cincin "tumbuh" dari atas searah jarum jam
-        // ---------------------------------------------------------
-
         private void startAnimation() {
             if (animator != null) {
                 animator.stop();
@@ -1827,10 +1960,6 @@ public class DashboardFrame extends JFrame {
             return new Dimension(430, legendTop + data.size() * ROW_H + 24);
         }
 
-        // ---------------------------------------------------------
-        // HOVER: arahkan mouse ke irisan atau baris legenda
-        // ---------------------------------------------------------
-
         private void setHover(int index) {
             if (index != hover) {
                 hover = index;
@@ -1864,7 +1993,6 @@ public class DashboardFrame extends JFrame {
                 double inner = outer * INNER_RATIO;
 
                 if (dist >= inner && dist <= outer + 8) {
-                    // sudut searah jarum jam dari posisi jam 12
                     double angle = Math.toDegrees(Math.atan2(dx, -dy));
                     if (angle < 0) angle += 360;
 
@@ -1885,10 +2013,6 @@ public class DashboardFrame extends JFrame {
 
             setHover(found);
         }
-
-        // ---------------------------------------------------------
-        // UTILITAS
-        // ---------------------------------------------------------
 
         private int diameter() {
             return Math.max(120, Math.min(MAX_DIAMETER, getWidth() - 90));
@@ -1941,10 +2065,6 @@ public class DashboardFrame extends JFrame {
             g2.drawString(text, (float) (cx - fm.stringWidth(text) / 2.0),
                     (float) baselineY);
         }
-
-        // ---------------------------------------------------------
-        // PENGGAMBARAN
-        // ---------------------------------------------------------
 
         @Override
         protected void paintComponent(Graphics g) {
@@ -2022,7 +2142,6 @@ public class DashboardFrame extends JFrame {
 
             Ellipse2D holeShape = new Ellipse2D.Double(hx, hy, hole, hole);
 
-            // ---- bayangan lembut di bawah cincin (memberi kesan kedalaman)
             for (int i = 8; i >= 1; i--) {
                 double grow = i * 1.5;
 
@@ -2032,10 +2151,9 @@ public class DashboardFrame extends JFrame {
                 ));
             }
 
-            // ---- irisan-irisan cincin
             int n = data.size();
             double gap = n > 1 ? 2.5 : 0;
-            double start = 90; // jam 12, bergerak searah jarum jam
+            double start = 90;
 
             for (int i = 0; i < n; i++) {
                 double sweep = share(i) * 360 * progress;
@@ -2046,8 +2164,6 @@ public class DashboardFrame extends JFrame {
                     continue;
                 }
 
-                // satu kategori penuh (360 derajat) digambar sebagai lingkaran utuh
-                // agar tidak ada garis sambungan di posisi jam 12
                 Area seg = extent >= 359.9
                         ? new Area(new Ellipse2D.Double(x0, y0, d, d))
                         : new Area(new Arc2D.Double(
@@ -2059,7 +2175,6 @@ public class DashboardFrame extends JFrame {
 
                 seg.subtract(new Area(holeShape));
 
-                // irisan yang disorot "menonjol" keluar
                 if (i == hover) {
                     double mid = Math.toRadians(start - sweep / 2.0);
                     seg.transform(AffineTransform.getTranslateInstance(
@@ -2070,7 +2185,7 @@ public class DashboardFrame extends JFrame {
                 Color base = colorOf(i);
 
                 if (hover >= 0 && hover != i) {
-                    base = mix(base, Color.WHITE, 0.45); // yang lain meredup
+                    base = mix(base, Color.WHITE, 0.45);
                 }
 
                 Color light = mix(base, Color.WHITE, 0.22);
@@ -2082,7 +2197,6 @@ public class DashboardFrame extends JFrame {
                 ));
                 g2.fill(seg);
 
-                // tepi tipis terang agar terlihat berlapis
                 g2.setStroke(new BasicStroke(1f));
                 g2.setColor(new Color(255, 255, 255, 90));
                 g2.draw(seg);
@@ -2090,7 +2204,6 @@ public class DashboardFrame extends JFrame {
                 start -= sweep;
             }
 
-            // ---- lubang tengah dengan bayangan dalam
             g2.setColor(Color.WHITE);
             g2.fill(holeShape);
 
@@ -2190,14 +2303,12 @@ public class DashboardFrame extends JFrame {
                 int midY = row.y + row.height / 2;
                 Color c = colorOf(i);
 
-                // lingkaran ikon lembut + titik warna (mirip daftar kategori e-wallet)
                 g2.setColor(mix(c, Color.WHITE, 0.80));
                 g2.fillOval(row.x + 10, midY - 13, 26, 26);
 
                 g2.setColor(c);
                 g2.fillOval(row.x + 18, midY - 5, 10, 10);
 
-                // nama kategori
                 g2.setFont(nameFont);
                 g2.setColor(Theme.TEXT);
                 g2.drawString(
@@ -2206,7 +2317,6 @@ public class DashboardFrame extends JFrame {
                         midY + (nameFM.getAscent() - nameFM.getDescent()) / 2
                 );
 
-                // persentase
                 String pct = item.persentase().toPlainString() + "%";
                 g2.setFont(pctFont);
                 g2.setColor(Color.GRAY);
@@ -2216,7 +2326,6 @@ public class DashboardFrame extends JFrame {
                         midY + (pctFM.getAscent() - pctFM.getDescent()) / 2
                 );
 
-                // nominal
                 String amt = RP.format(item.total());
                 g2.setFont(amtFont);
                 g2.setColor(Theme.TEXT);
@@ -2226,7 +2335,6 @@ public class DashboardFrame extends JFrame {
                         midY + (amtFM.getAscent() - amtFM.getDescent()) / 2
                 );
 
-                // garis pemisah antar baris
                 if (i < data.size() - 1) {
                     g2.setColor(new Color(240, 236, 226));
                     g2.drawLine(nameX, row.y + ROW_H - 1, right, row.y + ROW_H - 1);
@@ -2431,9 +2539,9 @@ public class DashboardFrame extends JFrame {
     }
 
     private String escape(String text) {
-        return text.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;");
+        return text.replace("&", "&")
+                .replace("<", "<")
+                .replace(">", ">");
     }
 
     private void setColumnWidths(JTable table, int... widths) {
