@@ -10,6 +10,16 @@ import java.util.Optional;
 
 public class LoginFrame extends JFrame {
 
+    private JButton masuk;
+
+    // Batas percobaan login. Static supaya tetap berlaku walau jendela login dibuka ulang.
+    private static final int MAKS_GAGAL = 3;
+    private static final int COOLDOWN_DETIK = 30;
+    private static int gagalBeruntun = 0;
+    private static long terkunciSampai = 0L; // epoch millis
+
+    private javax.swing.Timer cooldownTimer;
+
     private final JTextField username = new JTextField(20);
     private final JPasswordField password = new JPasswordField(20);
 
@@ -106,7 +116,7 @@ public class LoginFrame extends JFrame {
         gbc.insets = new Insets(2, 0, 0, 0);
         form.add(lupa, gbc);
 
-        JButton masuk = Theme.button("Masuk");
+        masuk = Theme.button("Masuk");
         masuk.setBackground(Theme.CHARCOAL);
         masuk.setForeground(Theme.WHITE);
 
@@ -132,6 +142,44 @@ public class LoginFrame extends JFrame {
         setContentPane(page);
 
         getRootPane().setDefaultButton(masuk);
+
+        // Jika masih dalam masa tunggu (mis. setelah logout), lanjutkan hitungan mundur
+        if (sisaDetik() > 0) {
+            mulaiCooldown();
+        }
+    }
+
+    private static int sisaDetik() {
+        long sisa = terkunciSampai - System.currentTimeMillis();
+        return sisa <= 0 ? 0 : (int) Math.ceil(sisa / 1000.0);
+    }
+
+    /** Nonaktifkan tombol Masuk dan tampilkan hitungan mundur di tombol. */
+    private void mulaiCooldown() {
+        masuk.setEnabled(false);
+        masuk.setText("Tunggu " + sisaDetik() + " dtk");
+
+        if (cooldownTimer != null) cooldownTimer.stop();
+        cooldownTimer = new javax.swing.Timer(250, e -> {
+            int sisa = sisaDetik();
+            if (sisa <= 0) {
+                ((javax.swing.Timer) e.getSource()).stop();
+                gagalBeruntun = 0;
+                terkunciSampai = 0L;
+                masuk.setText("Masuk");
+                masuk.setEnabled(true);
+                password.requestFocusInWindow();
+            } else {
+                masuk.setText("Tunggu " + sisa + " dtk");
+            }
+        });
+        cooldownTimer.start();
+    }
+
+    @Override
+    public void dispose() {
+        if (cooldownTimer != null) cooldownTimer.stop();
+        super.dispose();
     }
 
     private JLabel createLabel(String text) {
@@ -153,12 +201,16 @@ public class LoginFrame extends JFrame {
     }
 
     private void login() {
+        if (sisaDetik() > 0) {
+            return; // masih masa tunggu (mis. ditekan lewat Enter)
+        }
+
         try {
             String uText = username.getText().trim();
             String pText = new String(password.getPassword());
 
             if (uText.isEmpty() || pText.isEmpty()) {
-                JOptionPane.showMessageDialog(
+                Dialogs.showMessageDialog(
                         this,
                         "Username dan password tidak boleh kosong.",
                         "Peringatan",
@@ -167,20 +219,63 @@ public class LoginFrame extends JFrame {
                 return;
             }
 
-            Optional<Pengguna> userOpt = new PenggunaDAO().login(uText, pText);
+            // Verifikasi BCrypt + query dijalankan di thread latar agar jendela tidak membeku
+            final String oldText = masuk.getText();
+            masuk.setText("Memeriksa...");
+            masuk.setEnabled(false);
 
-            if (userOpt.isEmpty()) {
-                JOptionPane.showMessageDialog(
-                        this,
-                        "Username atau password salah.",
-                        "Gagal Masuk",
-                        JOptionPane.WARNING_MESSAGE
-                );
-                return;
-            }
+            new SwingWorker<Optional<Pengguna>, Void>() {
+                @Override
+                protected Optional<Pengguna> doInBackground() throws Exception {
+                    return new PenggunaDAO().login(uText, pText);
+                }
 
-            new DashboardFrame(userOpt.get()).setVisible(true);
-            dispose();
+                @Override
+                protected void done() {
+                    masuk.setText(oldText);
+                    masuk.setEnabled(true);
+                    try {
+                        Optional<Pengguna> userOpt = get();
+
+                        if (userOpt.isEmpty()) {
+                            gagalBeruntun++;
+                            password.setText("");
+
+                            if (gagalBeruntun >= MAKS_GAGAL) {
+                                terkunciSampai = System.currentTimeMillis() + COOLDOWN_DETIK * 1000L;
+                                mulaiCooldown();
+                                Dialogs.showMessageDialog(
+                                        LoginFrame.this,
+                                        "Anda salah memasukkan username atau password " + MAKS_GAGAL
+                                                + " kali. Coba lagi setelah " + COOLDOWN_DETIK + " detik.",
+                                        "Terlalu Banyak Percobaan",
+                                        JOptionPane.WARNING_MESSAGE
+                                );
+                            } else {
+                                Dialogs.showMessageDialog(
+                                        LoginFrame.this,
+                                        "Username atau password salah. Sisa percobaan: "
+                                                + (MAKS_GAGAL - gagalBeruntun) + ".",
+                                        "Gagal Masuk",
+                                        JOptionPane.WARNING_MESSAGE
+                                );
+                            }
+                            return;
+                        }
+
+                        gagalBeruntun = 0;
+                        terkunciSampai = 0L;
+
+                        new DashboardFrame(userOpt.get()).setVisible(true);
+                        dispose();
+
+                    } catch (Exception ex) {
+                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                        cause.printStackTrace();
+                        showError(cause instanceof Exception ? (Exception) cause : ex);
+                    }
+                }
+            }.execute();
 
         } catch (Exception ex) {
             ex.printStackTrace();
@@ -203,7 +298,7 @@ public class LoginFrame extends JFrame {
                 "Password (minimal 8 karakter)", pass
         };
 
-        if (JOptionPane.showConfirmDialog(
+        if (Dialogs.showConfirmDialog(
                 this,
                 fields,
                 "Registrasi DompetKu",
@@ -220,7 +315,7 @@ public class LoginFrame extends JFrame {
                     new String(pass.getPassword())
             );
 
-            JOptionPane.showMessageDialog(
+            Dialogs.showMessageDialog(
                     this,
                     "Akun berhasil dibuat. Silakan masuk.",
                     "Registrasi berhasil",
@@ -259,7 +354,7 @@ public class LoginFrame extends JFrame {
 
         // Langkah 1: verifikasi username + nama lengkap (maksimal 3 kali coba)
         for (int coba = 1; coba <= maxCoba && !cocok; coba++) {
-            if (JOptionPane.showConfirmDialog(
+            if (Dialogs.showConfirmDialog(
                     this,
                     identitas,
                     "Lupa Password",
@@ -281,7 +376,7 @@ public class LoginFrame extends JFrame {
                 int sisa = maxCoba - coba;
 
                 if (sisa == 0) {
-                    JOptionPane.showMessageDialog(
+                    Dialogs.showMessageDialog(
                             this,
                             "Terlalu banyak percobaan. Silakan coba lagi nanti.",
                             "Gagal",
@@ -290,7 +385,7 @@ public class LoginFrame extends JFrame {
                     return;
                 }
 
-                JOptionPane.showMessageDialog(
+                Dialogs.showMessageDialog(
                         this,
                         "Username atau nama lengkap tidak sesuai.\nSisa percobaan: " + sisa,
                         "Gagal",
@@ -314,7 +409,7 @@ public class LoginFrame extends JFrame {
         };
 
         while (true) {
-            if (JOptionPane.showConfirmDialog(
+            if (Dialogs.showConfirmDialog(
                     this,
                     fieldsBaru,
                     "Buat Password Baru",
@@ -328,7 +423,7 @@ public class LoginFrame extends JFrame {
             String p2 = new String(ulangi.getPassword());
 
             if (p1.length() < 8) {
-                JOptionPane.showMessageDialog(
+                Dialogs.showMessageDialog(
                         this,
                         "Password minimal 8 karakter.",
                         "Peringatan",
@@ -338,7 +433,7 @@ public class LoginFrame extends JFrame {
             }
 
             if (!p1.equals(p2)) {
-                JOptionPane.showMessageDialog(
+                Dialogs.showMessageDialog(
                         this,
                         "Password dan ulangi password tidak sama.",
                         "Peringatan",
@@ -350,7 +445,7 @@ public class LoginFrame extends JFrame {
             try {
                 dao.resetPassword(user.getText(), nama.getText(), p1);
 
-                JOptionPane.showMessageDialog(
+                Dialogs.showMessageDialog(
                         this,
                         "Password berhasil diubah. Silakan masuk dengan password baru.",
                         "Berhasil",
@@ -371,7 +466,7 @@ public class LoginFrame extends JFrame {
     }
 
     private void showError(Exception ex) {
-        JOptionPane.showMessageDialog(
+        Dialogs.showMessageDialog(
                 this,
                 ex.getMessage() == null ? ex.toString() : ex.getMessage(),
                 "Terjadi kesalahan",

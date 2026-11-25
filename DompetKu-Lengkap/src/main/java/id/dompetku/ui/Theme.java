@@ -5,6 +5,7 @@ import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import javax.swing.Timer;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.RoundRectangle2D;
 
@@ -116,13 +117,7 @@ public final class Theme {
     }
 
     public static void styleInput(JTextField field) {
-        field.setFont(new Font("SansSerif", Font.PLAIN, 14));
-        field.setForeground(CHARCOAL);
-        field.setBackground(Color.WHITE);
-        field.setCaretColor(CHARCOAL);
-        field.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(BORDER),
-                new EmptyBorder(9, 10, 9, 10)));
+        Dialogs.styleField(field);
     }
 
     // ------------------------------------------------------------------ tombol
@@ -148,12 +143,17 @@ public final class Theme {
     }
 
     /**
-     * Tombol yang digambar sendiri supaya warnanya tampil sama di Windows, macOS, maupun Linux
-     * (look-and-feel sistem sering mengabaikan setBackground pada JButton).
+     * Tombol yang digambar sendiri supaya warnanya tampil sama di Windows, macOS, maupun Linux.
+     * Hover berganti warna secara halus (animasi singkat ~120 ms), ada efek tekan, dan cincin fokus
+     * saat dioperasikan lewat keyboard.
      */
     private static final class FlatButton extends JButton {
+        private static final int ARC = 14;
+
         private final boolean ghost;
-        private boolean hover;
+        private float hoverT;      // 0 = normal, 1 = hover penuh
+        private float targetT;
+        private final Timer anim;
 
         FlatButton(String text, Color bg, Color fg, boolean ghost) {
             super(text);
@@ -165,21 +165,48 @@ public final class Theme {
             setContentAreaFilled(false);
             setBorderPainted(false);
             setFocusPainted(false);
+            setRolloverEnabled(true);
             setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-            setBorder(new EmptyBorder(9, 18, 9, 18));
+            setBorder(new EmptyBorder(9, 20, 9, 20));
+
+            anim = new Timer(15, e -> {
+                float step = 0.22f;
+                if (hoverT < targetT) hoverT = Math.min(targetT, hoverT + step);
+                else if (hoverT > targetT) hoverT = Math.max(targetT, hoverT - step);
+                repaint();
+                if (hoverT == targetT) ((Timer) e.getSource()).stop();
+            });
+
             addMouseListener(new MouseAdapter() {
                 @Override
                 public void mouseEntered(MouseEvent e) {
-                    hover = true;
-                    repaint();
+                    targetT = 1f;
+                    anim.start();
                 }
 
                 @Override
                 public void mouseExited(MouseEvent e) {
-                    hover = false;
+                    targetT = 0f;
+                    anim.start();
+                }
+            });
+            addFocusListener(new java.awt.event.FocusAdapter() {
+                @Override
+                public void focusGained(java.awt.event.FocusEvent e) {
+                    repaint();
+                }
+
+                @Override
+                public void focusLost(java.awt.event.FocusEvent e) {
                     repaint();
                 }
             });
+        }
+
+        @Override
+        public void removeNotify() {
+            anim.stop();
+            super.removeNotify();
         }
 
         @Override
@@ -187,8 +214,8 @@ public final class Theme {
             FontMetrics fm = getFontMetrics(getFont());
             Insets in = getInsets();
             return new Dimension(
-                    fm.stringWidth(getText()) + in.left + in.right,
-                    Math.max(36, fm.getHeight() + in.top + in.bottom));
+                    Math.max(76, fm.stringWidth(getText()) + in.left + in.right),
+                    Math.max(38, fm.getHeight() + in.top + in.bottom));
         }
 
         @Override
@@ -196,22 +223,37 @@ public final class Theme {
             Graphics2D g = (Graphics2D) g0.create();
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
 
-            Color bg = getBackground();
+            boolean on = isEnabled();
+            boolean pressed = on && getModel().isPressed();
+
+            Color baseBg = getBackground();
+            Color bg = baseBg;
             Color fg = getForeground();
             Color edge = BORDER;
 
-            if (!isEnabled()) {
-                bg = ghost ? new Color(0xF6, 0xF2, 0xE6) : new Color(0xDD, 0xD5, 0xBF);
-                fg = new Color(0xA0, 0x96, 0x80);
-            } else if (getModel().isPressed()) {
-                bg = shade(bg, 0.82f);
-            } else if (hover) {
-                bg = shade(bg, 0.92f);
-                if (ghost) edge = GOLD;
+            if (!on) {
+                bg = ghost ? new Color(0xF6, 0xF2, 0xE6) : new Color(0xE4, 0xDC, 0xC6);
+                fg = new Color(0xAB, 0xA1, 0x8A);
+            } else {
+                Color hoverBg = ghost ? new Color(0xFA, 0xF1, 0xD6) : shade(baseBg, 0.90f);
+                bg = mix(baseBg, hoverBg, hoverT);
+                if (ghost) edge = mix(BORDER, GOLD, hoverT);
+                if (pressed) bg = shade(bg, 0.92f);
             }
 
-            RoundRectangle2D shape = new RoundRectangle2D.Float(0.5f, 0.5f, getWidth() - 1, getHeight() - 1, 10, 10);
+            int w = getWidth(), h = getHeight();
+            int lift = pressed ? 1 : 0;   // tombol "turun" 1px saat ditekan
+
+            // bayangan lembut hanya untuk tombol solid yang aktif dan tidak sedang ditekan
+            if (on && !ghost && !pressed) {
+                g.setColor(new Color(0x20, 0x0E, 0x00, 28));
+                g.fill(new RoundRectangle2D.Float(1, 3, w - 2, h - 3, ARC, ARC));
+            }
+
+            RoundRectangle2D shape = new RoundRectangle2D.Float(
+                    0.5f, 0.5f + lift, w - 1, h - (ghost || pressed ? 1 : 3), ARC, ARC);
             g.setColor(bg);
             g.fill(shape);
             if (ghost) {
@@ -219,13 +261,27 @@ public final class Theme {
                 g.draw(shape);
             }
 
+            if (isFocusOwner() && on) {
+                g.setColor(new Color(GOLD.getRed(), GOLD.getGreen(), GOLD.getBlue(), 150));
+                g.setStroke(new BasicStroke(2f));
+                g.draw(new RoundRectangle2D.Float(2f, 2f + lift, w - 4, h - (ghost || pressed ? 4 : 6), ARC - 3, ARC - 3));
+            }
+
             g.setFont(getFont());
             FontMetrics fm = g.getFontMetrics();
-            int x = (getWidth() - fm.stringWidth(getText())) / 2;
-            int y = (getHeight() - fm.getHeight()) / 2 + fm.getAscent();
+            int bodyH = ghost || pressed ? h : h - 2;
+            int x = (w - fm.stringWidth(getText())) / 2;
+            int y = (bodyH - fm.getHeight()) / 2 + fm.getAscent() + lift;
             g.setColor(fg);
             g.drawString(getText(), x, y);
             g.dispose();
+        }
+
+        private static Color mix(Color a, Color b, float t) {
+            return new Color(
+                    Math.round(a.getRed() + (b.getRed() - a.getRed()) * t),
+                    Math.round(a.getGreen() + (b.getGreen() - a.getGreen()) * t),
+                    Math.round(a.getBlue() + (b.getBlue() - a.getBlue()) * t));
         }
 
         /** Gelapkan warna terang, terangkan warna gelap, agar efek hover selalu terlihat. */
