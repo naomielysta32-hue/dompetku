@@ -52,35 +52,43 @@ public class ProfilePanel extends JPanel {
         JPanel columns = new JPanel(new GridBagLayout());
         columns.setOpaque(false);
 
-        GridBagConstraints gc = new GridBagConstraints();
-        gc.gridy = 0;
-        gc.fill = GridBagConstraints.BOTH;
-        gc.anchor = GridBagConstraints.NORTH;
+        // Baris 0 Kolom 0: Kartu Identitas (tingginya otomatis sejajar dengan kartu Data Akun di sebelah kanan)
+        GridBagConstraints gcLeft = new GridBagConstraints();
+        gcLeft.gridx = 0;
+        gcLeft.gridy = 0;
+        gcLeft.weightx = 0;
+        gcLeft.weighty = 0;
+        gcLeft.fill = GridBagConstraints.BOTH;
+        gcLeft.anchor = GridBagConstraints.NORTH;
+        gcLeft.insets = new Insets(0, 0, 16, 18);
+        columns.add(identityCard(), gcLeft);
 
-        gc.gridx = 0;
-        gc.weightx = 0;
-        gc.weighty = 0;
-        gc.insets = new Insets(0, 0, 0, 18);
-        gc.fill = GridBagConstraints.HORIZONTAL; // kartu identitas tidak ikut memanjang ke bawah
-        columns.add(identityCard(), gc);
-        gc.fill = GridBagConstraints.BOTH;
+        // Baris 0 Kolom 1: Kartu Data Akun (sejajar atas & bawah dengan Kartu Identitas)
+        GridBagConstraints gcRightTop = new GridBagConstraints();
+        gcRightTop.gridx = 1;
+        gcRightTop.gridy = 0;
+        gcRightTop.weightx = 1;
+        gcRightTop.weighty = 0;
+        gcRightTop.fill = GridBagConstraints.BOTH;
+        gcRightTop.anchor = GridBagConstraints.NORTH;
+        gcRightTop.insets = new Insets(0, 0, 16, 0);
+        columns.add(accountCard(), gcRightTop);
 
-        JPanel forms = new JPanel();
-        forms.setOpaque(false);
-        forms.setLayout(new BoxLayout(forms, BoxLayout.Y_AXIS));
-        forms.add(accountCard());
-        forms.add(Box.createVerticalStrut(16));
-        forms.add(passwordCard());
+        // Baris 1 Kolom 1: Kartu Ganti Password
+        GridBagConstraints gcRightBottom = new GridBagConstraints();
+        gcRightBottom.gridx = 1;
+        gcRightBottom.gridy = 1;
+        gcRightBottom.weightx = 1;
+        gcRightBottom.weighty = 0;
+        gcRightBottom.fill = GridBagConstraints.HORIZONTAL;
+        gcRightBottom.anchor = GridBagConstraints.NORTH;
+        gcRightBottom.insets = new Insets(0, 0, 0, 0);
+        columns.add(passwordCard(), gcRightBottom);
 
-        gc.gridx = 1;
-        gc.weightx = 1;
-        gc.insets = new Insets(0, 0, 0, 0);
-        columns.add(forms, gc);
-
-        // dorong isi ke atas bila jendela tinggi
+        // Dorong seluruh isi ke atas bila jendela tinggi
         GridBagConstraints filler = new GridBagConstraints();
         filler.gridx = 0;
-        filler.gridy = 1;
+        filler.gridy = 2;
         filler.gridwidth = 2;
         filler.weighty = 1;
         columns.add(Box.createGlue(), filler);
@@ -126,7 +134,8 @@ public class ProfilePanel extends JPanel {
     private JPanel identityCard() {
         JPanel card = Theme.card();
         card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
-        card.setPreferredSize(new Dimension(260, 300));
+        card.setPreferredSize(new Dimension(260, 320));
+        card.setMinimumSize(new Dimension(260, 320));
 
         avatar.setAlignmentX(Component.CENTER_ALIGNMENT);
 
@@ -144,13 +153,13 @@ public class ProfilePanel extends JPanel {
         stats.add(stat(lblDompet, "Dompet aktif"));
         stats.add(stat(lblTransaksi, "Transaksi"));
         stats.setAlignmentX(Component.CENTER_ALIGNMENT);
-        stats.setMaximumSize(new Dimension(Integer.MAX_VALUE, 70));
+        stats.setMaximumSize(new Dimension(Integer.MAX_VALUE, 64));
 
         JSeparator sep = new JSeparator();
         sep.setForeground(Theme.BORDER);
         sep.setMaximumSize(new Dimension(Integer.MAX_VALUE, 2));
 
-        card.add(Box.createVerticalStrut(6));
+        card.add(Box.createVerticalGlue());
         card.add(avatar);
         card.add(Box.createVerticalStrut(14));
         card.add(lblNama);
@@ -162,6 +171,7 @@ public class ProfilePanel extends JPanel {
         card.add(sep);
         card.add(Box.createVerticalStrut(16));
         card.add(stats);
+        card.add(Box.createVerticalGlue());
         return card;
     }
 
