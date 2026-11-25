@@ -40,7 +40,7 @@ public class DashboardFrame extends JFrame {
     private final NumberFormat rupiah = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("id-ID"));
     { rupiah.setMinimumFractionDigits(0); rupiah.setMaximumFractionDigits(0); }
 
-    private final DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private final DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("d MMMM yyyy HH:mm:ss", Locale.forLanguageTag("id-ID"));
     private final DateTimeFormatter bulanFormatter = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.forLanguageTag("id-ID"));
     private final List<Runnable> refreshTasks = new ArrayList<>();
 
@@ -176,9 +176,9 @@ public class DashboardFrame extends JFrame {
                 if (!"LUNAS".equalsIgnoreCase(u[6]) && u[5] != null) {
                     long days = ChronoUnit.DAYS.between(today, LocalDate.parse(u[5]));
                     String pihak = ("PIUTANG".equalsIgnoreCase(u[1]) ? "Piutang dari " : "Utang kepada ") + u[2];
-                    if (days < 0) notifPanel.add(createAlertBox("⚠️ PERINGATAN: " + pihak + " telah LEWAT JATUH TEMPO (" + u[5] + ")!", Theme.EXPENSE));
-                    else if (days == 0) notifPanel.add(createAlertBox("🔔 PERINGATAN: " + pihak + " jatuh tempo HARI INI (" + u[5] + ").", Theme.GOLD));
-                    else if (days <= 3) notifPanel.add(createAlertBox("🔔 PERINGATAN: " + pihak + " akan jatuh tempo dalam " + days + " hari (" + u[5] + ").", Theme.GOLD));
+                    if (days < 0) notifPanel.add(createAlertBox("⚠️ PERINGATAN: " + pihak + " telah LEWAT JATUH TEMPO (" + formatTanggalIndonesia(u[5]) + ")!", Theme.EXPENSE));
+                    else if (days == 0) notifPanel.add(createAlertBox("🔔 PERINGATAN: " + pihak + " jatuh tempo HARI INI (" + formatTanggalIndonesia(u[5]) + ").", Theme.GOLD));
+                    else if (days <= 3) notifPanel.add(createAlertBox("🔔 PERINGATAN: " + pihak + " akan jatuh tempo dalam " + days + " hari (" + formatTanggalIndonesia(u[5]) + ").", Theme.GOLD));
                 }
             }
             for (String[] a : dao.anggaran(user.getIdPengguna())) {
@@ -475,8 +475,7 @@ public class DashboardFrame extends JFrame {
             }
             table.setModel(m);
             hideIdColumn(table);
-            setColumnWidths(table, 195, 150, 125, 130, 150, 150);
-        } catch (Exception e) {
+            setColumnWidths(table, 240, 130, 170, 140, 140, 200);        } catch (Exception e) {
             error(e);
         }
     }
@@ -649,16 +648,16 @@ public class DashboardFrame extends JFrame {
 
     private void loadBudgets(JTable table) {
         try {
-            DefaultTableModel m = model("ID", "Kategori", "Mulai", "Selesai", "Batas Anggaran", "Terpakai", "Penggunaan");
+            DefaultTableModel m = model("ID", "Kategori", "Mulai", "Selesai", "Batas Anggaran", "Terpakai", "Penggunaan", "Status");
             for (String[] r : dao.anggaran(user.getIdPengguna())) {
                 BigDecimal limit = new BigDecimal(r[4]), used = new BigDecimal(r[5]);
                 m.addRow(new Object[]{r[0], r[1], formatTanggalIndonesia(r[2]), formatTanggalIndonesia(r[3]),
-                        money(limit), money(used), teksPenggunaan(limit, used)});
+                        money(limit), money(used), teksPenggunaan(limit, used),
+                        used.compareTo(limit) > 0 ? "Lebih" : "Aman"});
             }
             table.setModel(m);
             hideIdColumn(table);
-            setColumnWidths(table, 120, 105, 105, 130, 130, 250);
-        } catch (Exception e) {
+            setColumnWidths(table, 110, 175, 175, 130, 120, 230, 80);        } catch (Exception e) {
             error(e);
         }
     }
@@ -806,7 +805,7 @@ public class DashboardFrame extends JFrame {
         String estimasi = estimasiTercapai(target, terkumpul, pertama, terakhir, jumlahSetoran, tenggat);
         String rekomendasi = rekomendasiNabung(target, terkumpul, tenggat);
         String deadline = tenggat == null ? "Belum ditentukan"
-                : tenggat.format(DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.forLanguageTag("id-ID")));
+                : tenggat.format(DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.forLanguageTag("id-ID")));
         bottom.add(createTargetInfo("SISA TARGET", money(sisa)));
         bottom.add(createTargetInfo("ESTIMASI TERCAPAI", tercapai ? "Sudah tercapai" : estimasi));
         bottom.add(createTargetInfo("TENGGAT", deadline));
@@ -934,7 +933,7 @@ public class DashboardFrame extends JFrame {
         try {
             DefaultTableModel m = model("ID", "Jenis", "Nama Pihak", "Nominal Awal", "Sudah Dibayar", "Jatuh Tempo", "Status");
             for (String[] r : dao.utang(user.getIdPengguna())) {
-                m.addRow(new Object[]{r[0], r[1], r[2], money(new BigDecimal(r[3])), money(new BigDecimal(r[4])), r[5], r[6]});
+                m.addRow(new Object[]{r[0], r[1], r[2], money(new BigDecimal(r[3])), money(new BigDecimal(r[4])), formatTanggalIndonesia(r[5]), r[6].replace("_", " ")});
             }
             table.setModel(m);
             hideIdColumn(table);
@@ -992,8 +991,8 @@ public class DashboardFrame extends JFrame {
     private JPanel reports() {
         JPanel p = Theme.page();
         JDateChooser start = buatDateChooser(YearMonth.now().atDay(1)), end = buatDateChooser(YearMonth.now().atEndOfMonth());
-        start.setPreferredSize(new Dimension(150, 34));
-        end.setPreferredSize(new Dimension(150, 34));
+        start.setPreferredSize(new Dimension(240, 40));
+        end.setPreferredSize(new Dimension(240, 40));
 
         JTextArea out = new JTextArea(18, 60);
         out.setEditable(false);
@@ -1018,7 +1017,7 @@ public class DashboardFrame extends JFrame {
                 lap.append("====================================================\n")
                         .append("               LAPORAN KEUANGAN DOMPETKU             \n")
                         .append("====================================================\n")
-                        .append("Periode : ").append(mulai).append(" s.d. ").append(akhir).append("\n\n")
+                        .append("Periode : ").append(formatTanggalIndonesia(mulai.toString())).append(" s.d. ").append(formatTanggalIndonesia(akhir.toString())).append("\n\n")
                         .append("RINGKASAN KEUANGAN\n----------------------------------------------------\n")
                         .append("Total Pemasukan   : ").append(money(ringkasan.pemasukan())).append("\n")
                         .append("Total Pengeluaran : ").append(money(ringkasan.pengeluaran())).append("\n")
@@ -1118,8 +1117,7 @@ public class DashboardFrame extends JFrame {
             title.setAlignment(Element.ALIGN_CENTER);
             doc.add(title);
             Paragraph meta = new Paragraph("Pemilik Akun: " + user.getNama() + " (@" + user.getUsername() + ")\n"
-                    + "Periode Laporan: " + mulai + " s.d. " + akhir + "\n\n", subFont);
-            meta.setAlignment(Element.ALIGN_CENTER);
+                    + "Periode Laporan: " + formatTanggalIndonesia(mulai.toString()) + " s.d. " + formatTanggalIndonesia(akhir.toString()) + "\n\n", subFont);            meta.setAlignment(Element.ALIGN_CENTER);
             doc.add(meta);
 
             addPdfSection(doc, "1. Ringkasan Keuangan", new PdfPTable(2), secFont, headFont, bodyFont,
@@ -1140,8 +1138,7 @@ public class DashboardFrame extends JFrame {
 
             List<String[]> trxRows = riwayatSemua.stream()
                     .filter(r -> { LocalDate t = r.tanggal().toLocalDate(); return !t.isBefore(mulai) && !t.isAfter(akhir); })
-                    .map(r -> new String[]{r.tanggal().toLocalDate().toString(), r.jenis(), r.dompet(), r.kategori(),
-                            money(r.nominal()), r.keterangan() == null ? "-" : r.keterangan()})
+                    .map(r -> new String[]{formatTanggalIndonesia(r.tanggal().toLocalDate().toString()), r.jenis(), r.dompet(), r.kategori(),                            money(r.nominal()), r.keterangan() == null ? "-" : r.keterangan()})
                     .toList();
             addPdfSection(doc, "4. Daftar Transaksi Periode Terpilih", new PdfPTable(new float[]{2.2f, 1.8f, 2f, 2.2f, 2.2f, 3f}),
                     secFont, headFont, bodyFont,
