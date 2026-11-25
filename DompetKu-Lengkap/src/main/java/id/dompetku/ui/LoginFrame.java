@@ -5,6 +5,10 @@ import id.dompetku.model.Pengguna;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.text.AbstractDocument;
+import javax.swing.text.AttributeSet;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.DocumentFilter;
 import java.awt.*;
 import java.util.Optional;
 
@@ -84,6 +88,9 @@ public class LoginFrame extends JFrame {
         styleInput(username);
         styleInput(password);
 
+        // Revisi #14: ikon mata pada kolom password login
+        JPanel passwordWrapper = buatPasswordDenganMata(password);
+
         gbc.gridy = 0;
         form.add(usernameLabel, gbc);
 
@@ -96,7 +103,7 @@ public class LoginFrame extends JFrame {
 
         gbc.gridy = 3;
         gbc.insets = new Insets(5, 0, 5, 0);
-        form.add(password, gbc);
+        form.add(passwordWrapper, gbc);
 
         // Link "Lupa password?" di bawah kolom password, rata kanan
         JButton lupa = new JButton("<html><u>Lupa password?</u></html>");
@@ -200,6 +207,64 @@ public class LoginFrame extends JFrame {
         ));
     }
 
+    /** Revisi #14: membungkus JPasswordField dengan tombol ikon mata (default tersembunyi). */
+    private JPanel buatPasswordDenganMata(JPasswordField pf) {
+        char defaultEcho = pf.getEchoChar() == 0 ? '•' : pf.getEchoChar();
+        pf.setEchoChar(defaultEcho);
+
+        JPanel wrapper = new JPanel(new BorderLayout(0, 0));
+        wrapper.setBackground(pf.getBackground());
+        wrapper.setBorder(pf.getBorder());
+
+        pf.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 4));
+        pf.setOpaque(false);
+
+        JToggleButton btnMata = new JToggleButton("👁");
+        btnMata.setToolTipText("Tampilkan / Sembunyikan Password");
+        btnMata.setFocusPainted(false);
+        btnMata.setBorderPainted(false);
+        btnMata.setContentAreaFilled(false);
+        btnMata.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        btnMata.setForeground(Theme.HINT);
+        btnMata.setMargin(new Insets(0, 4, 0, 0));
+        btnMata.addActionListener(e -> {
+            if (btnMata.isSelected()) {
+                pf.setEchoChar((char) 0);
+                btnMata.setForeground(Theme.CHARCOAL);
+            } else {
+                pf.setEchoChar(defaultEcho);
+                btnMata.setForeground(Theme.HINT);
+            }
+        });
+
+        wrapper.add(pf, BorderLayout.CENTER);
+        wrapper.add(btnMata, BorderLayout.EAST);
+        return wrapper;
+    }
+
+    /** Revisi #9: memblokir input karakter angka pada field nama. */
+    private void pasangFilterTanpaAngka(JTextField field) {
+        ((AbstractDocument) field.getDocument()).setDocumentFilter(new DocumentFilter() {
+            @Override
+            public void insertString(FilterBypass fb, int offset, String string, AttributeSet attr)
+                    throws BadLocationException {
+                if (string != null) {
+                    string = string.replaceAll("\\d", "");
+                }
+                super.insertString(fb, offset, string, attr);
+            }
+
+            @Override
+            public void replace(FilterBypass fb, int offset, int length, String text, AttributeSet attrs)
+                    throws BadLocationException {
+                if (text != null) {
+                    text = text.replaceAll("\\d", "");
+                }
+                super.replace(fb, offset, length, text, attrs);
+            }
+        });
+    }
+
     private void login() {
         if (sisaDetik() > 0) {
             return; // masih masa tunggu (mis. ditekan lewat Enter)
@@ -292,10 +357,16 @@ public class LoginFrame extends JFrame {
         styleInput(user);
         styleInput(pass);
 
+        // Revisi #9: blokir angka di nama lengkap saat registrasi
+        pasangFilterTanpaAngka(nama);
+
+        // Revisi #14: ikon mata di password registrasi
+        JPanel passWrapper = buatPasswordDenganMata(pass);
+
         Object[] fields = {
                 "Nama lengkap", nama,
                 "Username (minimal 3 karakter)", user,
-                "Password (minimal 8 karakter)", pass
+                "Password (min. 8 karakter, huruf & angka)", passWrapper
         };
 
         if (Dialogs.showConfirmDialog(
@@ -309,10 +380,23 @@ public class LoginFrame extends JFrame {
         }
 
         try {
+            String namaText = nama.getText().trim();
+            String passText = new String(pass.getPassword());
+
+            // Revisi #9: validasi nama tanpa angka
+            if (namaText.matches(".*\\d.*")) {
+                throw new IllegalArgumentException("Nama lengkap tidak boleh mengandung angka.");
+            }
+
+            // Revisi #16: validasi password kombinasi huruf dan angka
+            if (!passText.matches("^(?=.*[A-Za-z])(?=.*\\d).+$")) {
+                throw new IllegalArgumentException("Password harus mengandung kombinasi huruf dan angka.");
+            }
+
             Pengguna p = new PenggunaDAO().daftar(
-                    nama.getText(),
+                    namaText,
                     user.getText(),
-                    new String(pass.getPassword())
+                    passText
             );
 
             Dialogs.showMessageDialog(
@@ -343,6 +427,9 @@ public class LoginFrame extends JFrame {
 
         styleInput(user);
         styleInput(nama);
+
+        // Revisi #9: blokir angka pada input nama lengkap
+        pasangFilterTanpaAngka(nama);
 
         Object[] identitas = {
                 "Username", user,
@@ -403,9 +490,13 @@ public class LoginFrame extends JFrame {
         styleInput(baru);
         styleInput(ulangi);
 
+        // Revisi #14: ikon mata di form password baru
+        JPanel baruWrapper = buatPasswordDenganMata(baru);
+        JPanel ulangiWrapper = buatPasswordDenganMata(ulangi);
+
         Object[] fieldsBaru = {
-                "Password baru (minimal 8 karakter)", baru,
-                "Ulangi password baru", ulangi
+                "Password baru (min. 8 karakter, huruf & angka)", baruWrapper,
+                "Ulangi password baru", ulangiWrapper
         };
 
         while (true) {
@@ -426,6 +517,17 @@ public class LoginFrame extends JFrame {
                 Dialogs.showMessageDialog(
                         this,
                         "Password minimal 8 karakter.",
+                        "Peringatan",
+                        JOptionPane.WARNING_MESSAGE
+                );
+                continue;
+            }
+
+            // Revisi #16: password baru harus mengandung kombinasi huruf dan angka
+            if (!p1.matches("^(?=.*[A-Za-z])(?=.*\\d).+$")) {
+                Dialogs.showMessageDialog(
+                        this,
+                        "Password harus mengandung kombinasi huruf dan angka.",
                         "Peringatan",
                         JOptionPane.WARNING_MESSAGE
                 );

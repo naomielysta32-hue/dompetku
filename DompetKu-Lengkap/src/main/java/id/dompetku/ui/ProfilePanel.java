@@ -5,13 +5,17 @@ import id.dompetku.model.Pengguna;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.text.AbstractDocument;
+import javax.swing.text.AttributeSet;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.DocumentFilter;
 import java.awt.*;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
 /**
- * Halaman profil: identitas akun, ubah nama/username, dan ganti password.
+ * Halaman profil: identitas akun, ubah nama (username terkunci), dan ganti password.
  * Semua form tampil langsung di halaman (tanpa dialog) agar mudah dipakai.
  */
 public class ProfilePanel extends JPanel {
@@ -184,8 +188,22 @@ public class ProfilePanel extends JPanel {
 
         Theme.styleInput(fieldNama);
         Theme.styleInput(fieldUsername);
+
+        // Revisi #9: blokir input angka pada nama lengkap
+        pasangFilterTanpaAngka(fieldNama);
+
+        // Revisi #15: username tidak bisa diubah
+        fieldUsername.setEditable(false);
+        fieldUsername.setFocusable(false);
+        fieldUsername.setForeground(Theme.HINT);
+        fieldUsername.setBackground(new Color(243, 244, 246));
+
+        // Revisi #13: samakan tinggi semua kotak input di profil
+        samakanUkuranKotak(fieldNama);
+        samakanUkuranKotak(fieldUsername);
+
         addRow(form, 0, "Nama lengkap", fieldNama);
-        addRow(form, 2, "Username (minimal 3 karakter)", fieldUsername);
+        addRow(form, 2, "Username (tidak dapat diubah)", fieldUsername);
 
         JButton save = Theme.button("Simpan Perubahan");
         save.addActionListener(e -> saveProfile());
@@ -195,9 +213,17 @@ public class ProfilePanel extends JPanel {
 
     private void saveProfile() {
         try {
-            dao.ubahProfil(user.getIdPengguna(), fieldNama.getText(), fieldUsername.getText());
-            user.setNama(fieldNama.getText().trim());
-            user.setUsername(fieldUsername.getText().trim());
+            String namaBaru = fieldNama.getText().trim();
+            if (namaBaru.isEmpty()) {
+                throw new IllegalArgumentException("Nama lengkap wajib diisi.");
+            }
+            if (namaBaru.matches(".*\\d.*")) {
+                throw new IllegalArgumentException("Nama lengkap tidak boleh mengandung angka.");
+            }
+
+            // Username tetap memakai user.getUsername() agar tidak berubah
+            dao.ubahProfil(user.getIdPengguna(), namaBaru, user.getUsername());
+            user.setNama(namaBaru);
             reload();
             onProfileChanged.run();
             Dialogs.showMessageDialog(this, "Profil berhasil diperbarui.", "Berhasil", JOptionPane.INFORMATION_MESSAGE);
@@ -209,15 +235,21 @@ public class ProfilePanel extends JPanel {
     // ------------------------------------------------------------------ form password
 
     private JPanel passwordCard() {
-        JPanel card = formCard("Ganti Password", "Gunakan minimal 8 karakter.");
+        JPanel card = formCard("Ganti Password", "Gunakan minimal 8 karakter kombinasi huruf dan angka.");
         JPanel form = (JPanel) card.getClientProperty("form");
 
         Theme.styleInput(fieldLama);
         Theme.styleInput(fieldBaru);
         Theme.styleInput(fieldUlang);
-        addRow(form, 0, "Password lama", fieldLama);
-        addRow(form, 2, "Password baru", fieldBaru);
-        addRow(form, 4, "Ulangi password baru", fieldUlang);
+
+        // Revisi #13 & #14: bungkus password dengan tombol mata dan samakan ukuran kotaknya
+        JPanel wrapLama = buatPasswordDenganMata(fieldLama);
+        JPanel wrapBaru = buatPasswordDenganMata(fieldBaru);
+        JPanel wrapUlang = buatPasswordDenganMata(fieldUlang);
+
+        addRow(form, 0, "Password lama", wrapLama);
+        addRow(form, 2, "Password baru", wrapBaru);
+        addRow(form, 4, "Ulangi password baru", wrapUlang);
 
         JButton save = Theme.buttonDark("Ubah Password");
         save.addActionListener(e -> savePassword());
@@ -237,6 +269,10 @@ public class ProfilePanel extends JPanel {
             if (!baru.equals(ulang)) {
                 throw new IllegalArgumentException("Password baru dan ulangannya tidak sama.");
             }
+            // Revisi #16: wajib ada kombinasi huruf dan angka
+            if (!baru.matches("^(?=.*[A-Za-z])(?=.*\\d).+$")) {
+                throw new IllegalArgumentException("Password baru harus mengandung kombinasi huruf dan angka.");
+            }
 
             dao.ubahPassword(user.getIdPengguna(), lama, baru);
             fieldLama.setText("");
@@ -248,7 +284,74 @@ public class ProfilePanel extends JPanel {
         }
     }
 
-    // ------------------------------------------------------------------ helper tata letak
+    // ------------------------------------------------------------------ helper revisi & tata letak
+
+    /** Revisi #13: menyeragamkan ukuran tinggi semua kotak input agar konsisten. */
+    private void samakanUkuranKotak(JComponent comp) {
+        Dimension dim = new Dimension(360, 38);
+        comp.setPreferredSize(dim);
+        comp.setMinimumSize(new Dimension(120, 38));
+        comp.setMaximumSize(new Dimension(Integer.MAX_VALUE, 38));
+    }
+
+    /** Revisi #14: membuat wrapper input password dengan tombol ikon mata di sisi kanan. */
+    private JPanel buatPasswordDenganMata(JPasswordField pf) {
+        char defaultEcho = pf.getEchoChar() == 0 ? '•' : pf.getEchoChar();
+        pf.setEchoChar(defaultEcho);
+
+        JPanel wrapper = new JPanel(new BorderLayout(0, 0));
+        wrapper.setBackground(pf.getBackground());
+        wrapper.setBorder(pf.getBorder());
+        samakanUkuranKotak(wrapper);
+
+        pf.setBorder(BorderFactory.createEmptyBorder(0, 2, 0, 4));
+        pf.setOpaque(false);
+
+        JToggleButton btnMata = new JToggleButton("👁");
+        btnMata.setToolTipText("Tampilkan / Sembunyikan Password");
+        btnMata.setFocusPainted(false);
+        btnMata.setBorderPainted(false);
+        btnMata.setContentAreaFilled(false);
+        btnMata.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        btnMata.setForeground(Theme.HINT);
+        btnMata.setPreferredSize(new Dimension(38, 36));
+        btnMata.addActionListener(e -> {
+            if (btnMata.isSelected()) {
+                pf.setEchoChar((char) 0);
+                btnMata.setForeground(Theme.TEXT);
+            } else {
+                pf.setEchoChar(defaultEcho);
+                btnMata.setForeground(Theme.HINT);
+            }
+        });
+
+        wrapper.add(pf, BorderLayout.CENTER);
+        wrapper.add(btnMata, BorderLayout.EAST);
+        return wrapper;
+    }
+
+    /** Revisi #9: memblokir karakter angka agar tidak dapat diketik atau di-paste ke field nama. */
+    private void pasangFilterTanpaAngka(JTextField field) {
+        ((AbstractDocument) field.getDocument()).setDocumentFilter(new DocumentFilter() {
+            @Override
+            public void insertString(FilterBypass fb, int offset, String string, AttributeSet attr)
+                    throws BadLocationException {
+                if (string != null) {
+                    string = string.replaceAll("\\d", "");
+                }
+                super.insertString(fb, offset, string, attr);
+            }
+
+            @Override
+            public void replace(FilterBypass fb, int offset, int length, String text, AttributeSet attrs)
+                    throws BadLocationException {
+                if (text != null) {
+                    text = text.replaceAll("\\d", "");
+                }
+                super.replace(fb, offset, length, text, attrs);
+            }
+        });
+    }
 
     /** Kartu dengan judul + keterangan; isi form ada di client property "form". */
     private JPanel formCard(String title, String subtitle) {
