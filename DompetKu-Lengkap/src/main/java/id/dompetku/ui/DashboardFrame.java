@@ -1073,14 +1073,75 @@ public class DashboardFrame extends JFrame {
         styleTable(table);
 
         JButton add = Theme.button("+ Set Anggaran");
+        add.setPreferredSize(new Dimension(150, 40));
         add.addActionListener(e -> addBudget());
 
-        p.add(
-                Theme.pageHeader("Anggaran Pengeluaran Bulanan", Theme.buttonRow(add)),
-                BorderLayout.NORTH
-        );
+        // Header halaman
+        JPanel header = new JPanel(new BorderLayout(10, 8));
+        header.setOpaque(false);
 
-        p.add(createTableContainer(table), BorderLayout.CENTER);
+        JPanel titlePanel = new JPanel();
+        titlePanel.setOpaque(false);
+        titlePanel.setLayout(new BoxLayout(titlePanel, BoxLayout.Y_AXIS));
+
+        JLabel title = Theme.heading("Anggaran Pengeluaran Bulanan");
+        title.setFont(new Font("SansSerif", Font.BOLD, 23));
+
+        JLabel subtitle = new JLabel(
+                "Pantau batas pengeluaran dan penggunaan anggaran setiap kategori."
+        );
+        subtitle.setFont(new Font("SansSerif", Font.PLAIN, 13));
+        subtitle.setForeground(Theme.MUTED);
+
+        titlePanel.add(title);
+        titlePanel.add(Box.createVerticalStrut(5));
+        titlePanel.add(subtitle);
+
+        header.add(titlePanel, BorderLayout.CENTER);
+        header.add(Theme.buttonRow(add), BorderLayout.EAST);
+
+        // Panel informasi
+        JPanel info = new JPanel(new BorderLayout(10, 0));
+        info.setBackground(new Color(255, 248, 225));
+        info.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(235, 210, 145)),
+                new EmptyBorder(12, 15, 12, 15)
+        ));
+
+        JLabel infoIcon = new JLabel("ⓘ");
+        infoIcon.setFont(new Font("SansSerif", Font.BOLD, 20));
+        infoIcon.setForeground(new Color(150, 105, 20));
+
+        JLabel infoText = new JLabel(
+                "<html><b>Informasi Anggaran</b><br>"
+                        + "Hijau menunjukkan anggaran masih tersedia. "
+                        + "Kuning menandakan penggunaan sudah mencapai 80%. "
+                        + "Merah menunjukkan anggaran telah habis atau terlampaui."
+                        + "</html>"
+        );
+        infoText.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        infoText.setForeground(new Color(105, 78, 25));
+
+        info.add(infoIcon, BorderLayout.WEST);
+        info.add(infoText, BorderLayout.CENTER);
+
+        // Panel tabel
+        JPanel tableCard = new JPanel(new BorderLayout());
+        tableCard.setBackground(Theme.WHITE);
+        tableCard.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(Theme.BORDER),
+                new EmptyBorder(8, 8, 8, 8)
+        ));
+
+        tableCard.add(createTableContainer(table), BorderLayout.CENTER);
+
+        JPanel center = new JPanel(new BorderLayout(0, 14));
+        center.setOpaque(false);
+        center.add(info, BorderLayout.NORTH);
+        center.add(tableCard, BorderLayout.CENTER);
+
+        p.add(header, BorderLayout.NORTH);
+        p.add(center, BorderLayout.CENTER);
 
         loadBudgets(table);
         refreshTasks.add(() -> loadBudgets(table));
@@ -1088,6 +1149,26 @@ public class DashboardFrame extends JFrame {
         return p;
     }
 
+    // Mengubah format tanggal menjadi 1 November 2026
+    private String formatTanggalIndonesia(String tanggal) {
+        if (tanggal == null || tanggal.isBlank()) {
+            return "-";
+        }
+
+        try {
+            LocalDate date = LocalDate.parse(tanggal);
+
+            return date.format(
+                    DateTimeFormatter.ofPattern(
+                            "d MMMM yyyy",
+                            Locale.forLanguageTag("id-ID")
+                    )
+            );
+
+        } catch (Exception e) {
+            return tanggal;
+        }
+    }
     /**
      * Teks kolom "Penggunaan".
      * Bila melewati batas: "300.0% • Lebih Rp2.000.000".
@@ -1121,8 +1202,12 @@ public class DashboardFrame extends JFrame {
                 BigDecimal used = new BigDecimal(r[5]);
 
                 m.addRow(new Object[]{
-                        r[0], r[1], r[2], r[3],
-                        money(limit), money(used),
+                        r[0],
+                        r[1],
+                        formatTanggalIndonesia(r[2]),
+                        formatTanggalIndonesia(r[3]),
+                        money(limit),
+                        money(used),
                         teksPenggunaan(limit, used)
                 });
             }
@@ -1135,6 +1220,8 @@ public class DashboardFrame extends JFrame {
             error(e);
         }
     }
+
+
 
     private void addBudget() {
         try {
@@ -1191,27 +1278,307 @@ public class DashboardFrame extends JFrame {
 
     private JPanel savings() {
         JPanel p = Theme.page();
+        p.setLayout(new BorderLayout(0, 16));
 
-        JTable table = new JTable();
-        styleTable(table);
-
-        JButton add = Theme.button("+ Target Baru");
+        JButton add = Theme.button("+ Buat Impian");
         JButton con = Theme.buttonDark("+ Tambah Setoran");
 
         add.addActionListener(e -> addTarget());
         con.addActionListener(e -> contribute());
 
-        p.add(
-                Theme.pageHeader("Target Tabungan & Impian", Theme.buttonRow(con, add)),
-                BorderLayout.NORTH
+        JPanel header = new JPanel(new BorderLayout(10, 10));
+        header.setOpaque(false);
+
+        JPanel titlePanel = new JPanel();
+        titlePanel.setOpaque(false);
+        titlePanel.setLayout(new BoxLayout(titlePanel, BoxLayout.Y_AXIS));
+
+        titlePanel.add(Theme.heading("Target Tabungan & Impian"));
+
+        JLabel subtitle = new JLabel(
+                "Wujudkan impianmu dengan perencanaan tabungan yang terarah."
         );
+        subtitle.setForeground(Theme.HINT);
+        subtitle.setFont(new Font("SansSerif", Font.PLAIN, 12));
 
-        p.add(createTableContainer(table), BorderLayout.CENTER);
+        titlePanel.add(subtitle);
 
-        loadTargets(table);
-        refreshTasks.add(() -> loadTargets(table));
+        header.add(titlePanel, BorderLayout.WEST);
+        header.add(Theme.buttonRow(con, add), BorderLayout.EAST);
+
+        p.add(header, BorderLayout.NORTH);
+
+        JPanel cards = new JPanel();
+        cards.setOpaque(false);
+        cards.setLayout(new BoxLayout(cards, BoxLayout.Y_AXIS));
+        cards.setBorder(new EmptyBorder(5, 0, 15, 5));
+
+        JScrollPane scroll = new JScrollPane(cards);
+        scroll.setBorder(null);
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.getVerticalScrollBar().setUnitIncrement(18);
+
+        p.add(scroll, BorderLayout.CENTER);
+
+        Runnable reload = () -> loadTargetCards(cards);
+        reload.run();
+
+        refreshTasks.add(reload);
 
         return p;
+    }
+
+    /**
+     * Memuat target tabungan dalam bentuk kartu.
+     */
+    private void loadTargetCards(JPanel container) {
+        container.removeAll();
+
+        try {
+            List<String[]> targets = dao.target(user.getIdPengguna());
+
+            if (targets.isEmpty()) {
+                JPanel empty = Theme.card();
+                empty.setLayout(new BoxLayout(empty, BoxLayout.Y_AXIS));
+                empty.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+                JLabel icon = new JLabel("✦");
+                icon.setFont(new Font("SansSerif", Font.BOLD, 38));
+                icon.setForeground(Theme.GOLD);
+                icon.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+                JLabel title = new JLabel("Belum Ada Impian");
+                title.setFont(new Font("SansSerif", Font.BOLD, 19));
+                title.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+                JLabel desc = new JLabel(
+                        "Mulai buat target tabungan pertamamu dan wujudkan impianmu."
+                );
+                desc.setForeground(Theme.HINT);
+                desc.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+                empty.add(Box.createVerticalStrut(25));
+                empty.add(icon);
+                empty.add(Box.createVerticalStrut(12));
+                empty.add(title);
+                empty.add(Box.createVerticalStrut(8));
+                empty.add(desc);
+                empty.add(Box.createVerticalStrut(25));
+
+                container.add(empty);
+
+            } else {
+                for (String[] r : targets) {
+                    container.add(createTargetCard(r));
+                    container.add(Box.createVerticalStrut(15));
+                }
+            }
+
+        } catch (Exception e) {
+            error(e);
+        }
+
+        container.revalidate();
+        container.repaint();
+    }
+
+    /**
+     * Membuat satu kartu impian.
+     */
+    private JPanel createTargetCard(String[] r) {
+
+        BigDecimal target = new BigDecimal(r[2]);
+        BigDecimal terkumpul = new BigDecimal(r[3]);
+
+        BigDecimal sisa = target.subtract(terkumpul);
+        if (sisa.signum() < 0) sisa = BigDecimal.ZERO;
+
+        double persen = target.signum() <= 0
+                ? 0
+                : terkumpul.multiply(BigDecimal.valueOf(100))
+                .divide(target, 2, RoundingMode.HALF_UP)
+                .doubleValue();
+
+        persen = Math.max(0, Math.min(100, persen));
+
+        LocalDate tenggat = tanggalAtauNull(r[5]);
+        LocalDate pertama = tanggalAtauNull(r[6]);
+        LocalDate terakhir = tanggalAtauNull(r[7]);
+
+        int jumlahSetoran = r[8] == null
+                ? 0
+                : Integer.parseInt(r[8]);
+
+        boolean tercapai = terkumpul.compareTo(target) >= 0;
+
+        JPanel card = Theme.card();
+        card.setLayout(new BorderLayout(0, 15));
+        card.setAlignmentX(Component.LEFT_ALIGNMENT);
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 270));
+
+        // BAGIAN ATAS
+        JPanel top = new JPanel(new BorderLayout(10, 5));
+        top.setOpaque(false);
+
+        JPanel namePanel = new JPanel();
+        namePanel.setOpaque(false);
+        namePanel.setLayout(new BoxLayout(namePanel, BoxLayout.Y_AXIS));
+
+        JLabel name = new JLabel("✦  " + r[1]);
+        name.setFont(new Font("SansSerif", Font.BOLD, 18));
+        name.setForeground(Theme.CHARCOAL);
+
+        JLabel status = new JLabel(
+                tercapai ? "✓ TARGET TERCAPAI" : "● SEDANG BERJALAN"
+        );
+
+        status.setFont(new Font("SansSerif", Font.BOLD, 10));
+        status.setForeground(tercapai ? Theme.INCOME : Theme.GOLD);
+
+        namePanel.add(name);
+        namePanel.add(Box.createVerticalStrut(5));
+        namePanel.add(status);
+
+        top.add(namePanel, BorderLayout.WEST);
+
+        JLabel percentage = new JLabel(
+                String.format(Locale.forLanguageTag("id-ID"), "%.1f%%", persen)
+        );
+        percentage.setFont(new Font("SansSerif", Font.BOLD, 22));
+        percentage.setForeground(Theme.GOLD);
+
+        top.add(percentage, BorderLayout.EAST);
+
+        card.add(top, BorderLayout.NORTH);
+
+        // BAGIAN TENGAH
+        JPanel middle = new JPanel();
+        middle.setOpaque(false);
+        middle.setLayout(new BoxLayout(middle, BoxLayout.Y_AXIS));
+
+        JLabel collected = new JLabel(money(terkumpul));
+        collected.setFont(new Font("SansSerif", Font.BOLD, 23));
+        collected.setForeground(Theme.INCOME);
+
+        JLabel targetLabel = new JLabel(
+                "dari target " + money(target)
+        );
+        targetLabel.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        targetLabel.setForeground(Theme.HINT);
+
+        JProgressBar progress = new JProgressBar(0, 1000);
+        progress.setValue((int) Math.round(persen * 10));
+        progress.setStringPainted(false);
+        progress.setForeground(tercapai ? Theme.INCOME : Theme.GOLD);
+        progress.setBackground(new Color(235, 229, 211));
+        progress.setBorderPainted(false);
+        progress.setPreferredSize(new Dimension(100, 12));
+        progress.setMaximumSize(new Dimension(Integer.MAX_VALUE, 12));
+
+        middle.add(collected);
+        middle.add(Box.createVerticalStrut(3));
+        middle.add(targetLabel);
+        middle.add(Box.createVerticalStrut(12));
+        middle.add(progress);
+
+        card.add(middle, BorderLayout.CENTER);
+
+        // BAGIAN BAWAH: INFORMASI ESTIMASI
+        JPanel bottom = new JPanel(new GridLayout(1, 3, 12, 0));
+        bottom.setOpaque(false);
+
+        String estimasi = estimasiTercapai(
+                target, terkumpul,
+                pertama, terakhir,
+                jumlahSetoran, tenggat
+        );
+
+        String rekomendasi = rekomendasiNabung(
+                target, terkumpul, tenggat
+        );
+
+        String deadline = tenggat == null
+                ? "Belum ditentukan"
+                : tenggat.format(
+                DateTimeFormatter.ofPattern("dd MMM yyyy",
+                        Locale.forLanguageTag("id-ID"))
+        );
+
+        bottom.add(createTargetInfo(
+                "SISA TARGET",
+                money(sisa)
+        ));
+
+        bottom.add(createTargetInfo(
+                "ESTIMASI TERCAPAI",
+                tercapai ? "Sudah tercapai" : estimasi
+        ));
+
+        bottom.add(createTargetInfo(
+                "TENGGAT",
+                deadline
+        ));
+
+        JPanel footer = new JPanel(new BorderLayout(8, 0));
+        footer.setOpaque(false);
+        footer.setBorder(new EmptyBorder(12, 0, 0, 0));
+
+        JPanel recommendation = new JPanel();
+        recommendation.setOpaque(true);
+        recommendation.setBackground(new Color(248, 243, 225));
+        recommendation.setBorder(new EmptyBorder(10, 12, 10, 12));
+        recommendation.setLayout(new BoxLayout(recommendation, BoxLayout.Y_AXIS));
+
+        JLabel recommendationTitle = new JLabel(
+                "✦  REKOMENDASI MENABUNG"
+        );
+        recommendationTitle.setFont(
+                new Font("SansSerif", Font.BOLD, 10)
+        );
+        recommendationTitle.setForeground(Theme.GOLD);
+
+        JLabel recommendationValue = new JLabel(
+                tercapai ? "Impianmu sudah terwujud!" : rekomendasi
+        );
+        recommendationValue.setFont(
+                new Font("SansSerif", Font.BOLD, 13)
+        );
+        recommendationValue.setForeground(Theme.CHARCOAL);
+
+        recommendation.add(recommendationTitle);
+        recommendation.add(Box.createVerticalStrut(5));
+        recommendation.add(recommendationValue);
+
+        footer.add(recommendation, BorderLayout.CENTER);
+
+        card.add(footer, BorderLayout.SOUTH);
+
+        return card;
+    }
+
+    /**
+     * Komponen informasi kecil pada kartu target.
+     */
+    private JPanel createTargetInfo(String title, String value) {
+
+        JPanel panel = new JPanel();
+        panel.setOpaque(false);
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+
+        JLabel lblTitle = new JLabel(title);
+        lblTitle.setFont(new Font("SansSerif", Font.BOLD, 9));
+        lblTitle.setForeground(Theme.HINT);
+
+        JLabel lblValue = new JLabel(value);
+        lblValue.setFont(new Font("SansSerif", Font.BOLD, 11));
+        lblValue.setForeground(Theme.CHARCOAL);
+
+        panel.add(lblTitle);
+        panel.add(Box.createVerticalStrut(5));
+        panel.add(lblValue);
+
+        return panel;
     }
 
     /**
@@ -1751,23 +2118,60 @@ public class DashboardFrame extends JFrame {
         });
 
         // Revisi #12: ekspor laporan dalam format PDF menggunakan OpenPDF
+        // Ekspor laporan PDF langsung diarahkan ke folder Downloads
         pdf.addActionListener(e -> {
             try {
                 LocalDate mulai = ambilTanggal(start);
                 LocalDate akhir = ambilTanggal(end);
 
-                JFileChooser fc = new JFileChooser();
-                fc.setFileFilter(new FileNameExtensionFilter("Dokumen PDF (*.pdf)", "pdf"));
-                fc.setSelectedFile(new File("laporan-dompetku.pdf"));
+                // Lokasi folder Downloads pengguna
+                File downloadsFolder = new File(
+                        System.getProperty("user.home"),
+                        "Downloads"
+                );
+
+                // Buat folder Downloads jika belum tersedia
+                if (!downloadsFolder.exists()) {
+                    downloadsFolder.mkdirs();
+                }
+
+                // Nama file PDF
+                String namaFile = "laporan-dompetku-"
+                        + mulai + "-sampai-" + akhir + ".pdf";
+
+                // Buka dialog penyimpanan langsung di Downloads
+                JFileChooser fc = new JFileChooser(downloadsFolder);
+
+                fc.setDialogTitle("Simpan Laporan DompetKu");
+                fc.setFileFilter(
+                        new FileNameExtensionFilter(
+                                "Dokumen PDF (*.pdf)", "pdf"
+                        )
+                );
+
+                fc.setSelectedFile(new File(downloadsFolder, namaFile));
 
                 if (fc.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+
                     File targetFile = fc.getSelectedFile();
-                    if (!targetFile.getName().toLowerCase(Locale.ROOT).endsWith(".pdf")) {
-                        targetFile = new File(targetFile.getAbsolutePath() + ".pdf");
+
+                    // Pastikan ekstensi PDF
+                    if (!targetFile.getName()
+                            .toLowerCase(Locale.ROOT).endsWith(".pdf")) {
+
+                        targetFile = new File(
+                                targetFile.getAbsolutePath() + ".pdf"
+                        );
                     }
 
+                    // Ekspor PDF
                     eksporLaporanPdf(targetFile, mulai, akhir);
-                    info("Laporan PDF berhasil diekspor ke:\n" + targetFile.getAbsolutePath());
+
+                    info(
+                            "Laporan PDF berhasil diekspor!\n\n"
+                                    + "Lokasi penyimpanan:\n"
+                                    + targetFile.getAbsolutePath()
+                    );
                 }
 
             } catch (Exception ex) {
@@ -1979,13 +2383,85 @@ public class DashboardFrame extends JFrame {
 
     private JDateChooser buatDateChooser(LocalDate initialDate) {
         JDateChooser chooser = new JDateChooser();
-        chooser.setDateFormatString("yyyy-MM-dd");
+
+        chooser.setDateFormatString("dd MMMM yyyy");
         chooser.setFont(new Font("SansSerif", Font.PLAIN, 14));
-        chooser.setPreferredSize(new Dimension(220, 36));
-        if (initialDate != null) {
-            chooser.setDate(Date.from(initialDate.atStartOfDay(ZoneId.systemDefault()).toInstant()));
-        }
+        chooser.setPreferredSize(new Dimension(250, 40));
+        chooser.setDate(Date.from(
+                (initialDate != null ? initialDate : LocalDate.now())
+                        .atStartOfDay(ZoneId.systemDefault())
+                        .toInstant()
+        ));
+
+        // Tampilan input tanggal
+        chooser.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(210, 220, 212), 1, true),
+                BorderFactory.createEmptyBorder(4, 8, 4, 8)
+        ));
+
+        chooser.setBackground(Color.WHITE);
+
+        // Tombol kalender
+        JButton calendarButton = chooser.getCalendarButton();
+
+        calendarButton.setBackground(new Color(20, 83, 45));
+        calendarButton.setForeground(Color.WHITE);
+        calendarButton.setFocusPainted(false);
+        calendarButton.setBorderPainted(false);
+        calendarButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        calendarButton.setPreferredSize(new Dimension(42, 36));
+
+        calendarButton.setToolTipText("Pilih tanggal");
+
+        // Efek hover tombol kalender
+        calendarButton.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseEntered(java.awt.event.MouseEvent e) {
+                calendarButton.setBackground(new Color(11, 56, 32));
+            }
+
+            @Override
+            public void mouseExited(java.awt.event.MouseEvent e) {
+                calendarButton.setBackground(new Color(20, 83, 45));
+            }
+        });
+
         return chooser;
+    }
+
+    private void rapikanKomponenKalender(Component component) {
+
+        if (component instanceof JPanel panel) {
+            panel.setBackground(Color.WHITE);
+        }
+
+        if (component instanceof JButton button) {
+            button.setFont(new Font("SansSerif", Font.PLAIN, 12));
+            button.setFocusPainted(false);
+            button.setBorderPainted(false);
+            button.setContentAreaFilled(true);
+            button.setBackground(Color.WHITE);
+            button.setForeground(new Color(45, 55, 45));
+            button.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        }
+
+        if (component instanceof JComboBox<?> combo) {
+            combo.setFont(new Font("SansSerif", Font.BOLD, 13));
+            combo.setBackground(Color.WHITE);
+            combo.setForeground(new Color(20, 83, 45));
+        }
+
+        if (component instanceof JSpinner spinner) {
+            spinner.setFont(new Font("SansSerif", Font.BOLD, 13));
+            spinner.setBackground(Color.WHITE);
+            spinner.setForeground(new Color(20, 83, 45));
+        }
+
+        if (component instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                rapikanKomponenKalender(child);
+            }
+        }
     }
 
     private LocalDate ambilTanggal(JDateChooser chooser) {
