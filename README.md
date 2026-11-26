@@ -77,3 +77,12 @@ Alternatif: build classpath Maven lalu jalankan `id.dompetku.App` dari IDE. Inte
 - Target tabungan dan kontribusi setoran; estimasi tercapai, rekomendasi menabung, dan pembaruan status otomatis.
 - Utang-piutang, pencatatan pembayaran/cicilan, notifikasi jatuh tempo, dan status pelunasan.
 - Laporan pemasukan/pengeluaran per periode, grafik pie kategori, tren bulanan, ekspor PDF, dan dukungan ekspor CSV.
+
+## Penerapan OOP
+
+| Konsep OOP | Penerapan pada fitur | File terkait |
+|---|---|---|
+| **Abstraksi** | Jenis dompet dan transaksi memiliki kontrak umum, sementara detail jenisnya ditentukan oleh kelas turunan. `BaseDAO` juga menyediakan abstraksi operasi JDBC bersama untuk akses data akun dan keuangan. | `src/main/java/id/dompetku/model/Dompet.java`, `src/main/java/id/dompetku/model/Transaksi.java`, `src/main/java/id/dompetku/dao/BaseDAO.java` |
+| **Enkapsulasi** | Data dompet, transaksi, dan pengguna disimpan dalam atribut `private`, lalu diakses melalui getter/setter. Konstruktor `Dompet` dan `Transaksi` juga memvalidasi data saat objek dibuat. | `src/main/java/id/dompetku/model/Dompet.java`, `src/main/java/id/dompetku/model/Transaksi.java`, `src/main/java/id/dompetku/model/Pengguna.java` |
+| **Pewarisan** | Dompet tunai, rekening bank, dan e-wallet mewarisi model dasar `Dompet`; pemasukan dan pengeluaran mewarisi model `Transaksi`. DAO akun dan keuangan mewarisi helper database dari `BaseDAO`. | `src/main/java/id/dompetku/model/DompetTunai.java`, `src/main/java/id/dompetku/model/RekeningBank.java`, `src/main/java/id/dompetku/model/EWallet.java`, `src/main/java/id/dompetku/model/Pemasukan.java`, `src/main/java/id/dompetku/model/Pengeluaran.java`, `src/main/java/id/dompetku/dao/PenggunaDAO.java`, `src/main/java/id/dompetku/dao/KeuanganDAO.java` |
+| **Polimorfisme** | Fitur tambah dompet menggunakan referensi `Dompet` untuk menampung dompet tunai, bank, atau e-wallet. Fitur pencatatan transaksi menggunakan referensi `Transaksi` untuk menampung pemasukan atau pengeluaran; masing-masing kelas menentukan jenisnya lewat method override. | `src/main/java/id/dompetku/ui/DashboardFrame.java`, `src/main/java/id/dompetku/model/DompetTunai.java`, `src/main/java/id/dompetku/model/RekeningBank.java`, `src/main/java/id/dompetku/model/EWallet.java`, `src/main/java/id/dompetku/model/Pemasukan.java`, `src/main/java/id/dompetku/model/Pengeluaran.java` |
